@@ -29,7 +29,7 @@ Architecture map: docs/architecture.md · Glossary: CONTEXT.md · Decisions: doc
 - Authenticated InnerTube calls use the TVHTML5 client on youtubei.googleapis.com with a Bearer token and no API key; the WEB client rejects Bearer tokens. Never call `/oauth2/v3/userinfo` for account info (the TV OAuth client isn't Data-API-v3-enabled) — use `account/accounts` with the TVHTML5 context instead.
 - The 16 GB build Mac stalls with > 3 parallel simulator clones; `just` hardcodes 3.
 - Playback fallback code (`PlaybackViewModel+Fallback.swift`) is under active decomposition (WS4). Do not add branches there; add a `StreamSource`.
-- `swift test` (and `just test-unit`) currently fails to build: `TOSPlayerView.swift`/`TOSPlayerViewModel+WebBridge.swift` have a native-macOS-only compile break (missing `onWindowReady` param, `NSImage.pngData()` doesn't exist) — pre-existing, tracked in `docs/modernization/workstreams/WS1-entry-point-and-gates.md` Discovered. Fix is WS4/WS5 scope.
+- The personal fork fixes the native-macOS compile blockers. `just ci` still fails inherited lint checks; full unit execution also has stale and shared-state failures. `just test-native-tvos` is the focused native check, not a full gate. See `docs/reviews/2026-10-04-native-playback.md` for measured results and limitations.
 
 ## Where things are
 - Playback: docs/architecture.md#playback · Tests how-to: docs/how-to/run-tests.md · Device logs: docs/how-to/device-logs.md

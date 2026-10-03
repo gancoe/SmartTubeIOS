@@ -135,6 +135,44 @@ struct SponsorBlockSkipManagerTests {
         #expect(delegate.seekCalled == nil)
     }
 
+    @Test("near-end skip uses the video duration while the player item duration is unknown")
+    @MainActor func nearEndSkipWithPendingPlayerItem() {
+        let manager = SponsorBlockSkipManager()
+        let delegate = SpyDelegate()
+        delegate.duration = 30
+        delegate.settings.sponsorBlockActions[.sponsor] = .skip
+        let item = AVPlayerItem(url: URL(fileURLWithPath: "/unavailable-sponsorblock-test-video.mp4"))
+        manager.delegate = delegate
+        manager.player = AVPlayer(playerItem: item)
+        manager.sponsorSegments = [SponsorSegment(start: 25, end: 29.5, category: .sponsor)]
+
+        #expect(!item.duration.seconds.isFinite || item.duration.seconds <= 0)
+        #expect(manager.checkSponsorSkip(at: 26))
+        #expect(delegate.playbackEndCalled)
+        #expect(!manager.isSkippingSegment)
+    }
+
+    @Test("manual near-end skip uses the video duration while the player item duration is unknown")
+    @MainActor func manualNearEndSkipWithPendingPlayerItem() {
+        let manager = SponsorBlockSkipManager()
+        let delegate = SpyDelegate()
+        delegate.duration = 30
+        delegate.settings.sponsorBlockActions[.sponsor] = .showToast
+        let item = AVPlayerItem(url: URL(fileURLWithPath: "/unavailable-sponsorblock-test-video.mp4"))
+        manager.delegate = delegate
+        manager.player = AVPlayer(playerItem: item)
+        manager.sponsorSegments = [SponsorSegment(start: 25, end: 29.5, category: .sponsor)]
+
+        #expect(!item.duration.seconds.isFinite || item.duration.seconds <= 0)
+        #expect(!manager.checkSponsorSkip(at: 26))
+        #expect(manager.currentToastSegment != nil)
+        manager.skipToastSegment()
+
+        #expect(delegate.playbackEndCalled)
+        #expect(delegate.seekCalled == nil)
+        #expect(manager.currentToastSegment == nil)
+    }
+
     // MARK: - 5. reset() clears all state
 
     @Test("reset() clears segments, toast, and isSkippingSegment")

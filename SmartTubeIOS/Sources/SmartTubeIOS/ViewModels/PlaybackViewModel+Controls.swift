@@ -12,6 +12,11 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 
 extension PlaybackViewModel {
 
+    func invalidatePendingSeek() {
+        seekID &+= 1
+        pendingSeekTarget = nil
+    }
+
     public func togglePlayPause() {
         if videoEnded {
             videoEnded = false
@@ -86,17 +91,32 @@ extension PlaybackViewModel {
     /// want the overlay to appear (user-initiated gestures) must call
     /// `showControls()` themselves after this.
     public func seek(to time: TimeInterval) {
+        let target = max(0, time)
+        pendingSeekTarget = target
+        seekID &+= 1
+        let requestedSeekID = seekID
         player.seek(
-            to: CMTime(seconds: time, preferredTimescale: 600),
+            to: CMTime(seconds: target, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.currentTime = time }
+        ) { [weak self] finished in
+            Task { @MainActor [weak self] in
+                guard let self, requestedSeekID == self.seekID else { return }
+                guard finished else {
+                    self.pendingSeekTarget = nil
+                    return
+                }
+                self.currentTime = target
+                self.pendingSeekTarget = nil
+            }
         }
     }
 
     public func seekRelative(seconds: TimeInterval) {
-        seek(to: max(0, currentTime + seconds))
+        let base = pendingSeekTarget ?? currentTime
+        let requested = base + seconds
+        let target = duration > 0 ? min(duration, max(0, requested)) : max(0, requested)
+        seek(to: target)
         showControls()
     }
 

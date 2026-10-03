@@ -249,7 +249,9 @@ public final class PlaybackViewModel {
 
     // MARK: - AVPlayer
 
-    public let player = AVPlayer()
+    public let player: AVPlayer
+    /// Monotonically increasing identity for the latest seek request.
+    var seekID: UInt = 0
     @ObservationIgnored nonisolated(unsafe) var timeObserver: Any?
     @ObservationIgnored nonisolated(unsafe) var audioSessionObserver: Any?
     @ObservationIgnored nonisolated(unsafe) var rateObserver: NSKeyValueObservation?
@@ -343,6 +345,10 @@ public final class PlaybackViewModel {
     public static let sleepTimerOptions: [Int] = [15, 30, 45, 60]
     /// Position to seek to once the AVPlayerItem is ready.
     var savedPositionToRestore: TimeInterval? = nil
+    /// Latest requested seek position while AVPlayer is resolving the seek.
+    /// Relative seeks build from this target so rapid inputs accumulate even
+    /// before AVPlayer invokes its completion handler.
+    var pendingSeekTarget: TimeInterval?
     /// Manages watch-history state: position saving, playback-started ping,
     /// and watchtime segment reporting. See WatchtimeTracker.
     var tracker: WatchtimeTracker
@@ -438,13 +444,15 @@ public final class PlaybackViewModel {
         api: InnerTubeAPI = InnerTubeAPI(),
         sponsorBlock: SponsorBlockService = SponsorBlockService(),
         deArrow: DeArrowService = DeArrowService(),
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        player: AVPlayer = AVPlayer()
     ) {
         self.api = api
         self.tracker = WatchtimeTracker(api: api)
         self.sponsorBlock = sponsorBlock
         self.deArrow = deArrow
         self.settings = settings
+        self.player = player
 
         // Create managers before any other setup (they hold no back-references yet).
         let sbm = SponsorBlockSkipManager()

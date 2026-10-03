@@ -35,10 +35,20 @@ works on a television.
 ## Validation
 
 ```sh
+just test-native-tvos
 just ci
 just build-tvos
 just test-tvos-settings
 ```
+
+`just test-native-tvos` runs the focused native playback, seeking, SponsorBlock,
+history, caption and quality tests, then the simulator Settings suite. It fails
+if no tests run or any are skipped. Logs and the simulator result bundle are
+saved in a new directory under `tmp/`. This focused check does not replace
+`just ci` or the physical Apple TV acceptance checks below.
+
+See the [4 October playback review](../reviews/2026-10-04-native-playback.md)
+for the test-first fixes, measured results and remaining validation gaps.
 
 The existing Settings UI suite may skip tests when it cannot navigate to the
 screen. Check executed, passed, failed and skipped counts, not just the process

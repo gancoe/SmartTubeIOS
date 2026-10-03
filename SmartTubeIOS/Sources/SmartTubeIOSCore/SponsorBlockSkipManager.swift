@@ -42,6 +42,15 @@ public final class SponsorBlockSkipManager {
 
     public init() {}
 
+    private var effectiveDuration: Double {
+        if let itemDuration = player?.currentItem?.duration.seconds,
+            itemDuration.isFinite && itemDuration > 0
+        {
+            return itemDuration
+        }
+        return delegate?.duration ?? 0
+    }
+
     // MARK: - Interface
 
     public func reset() {
@@ -61,7 +70,6 @@ public final class SponsorBlockSkipManager {
             currentToastSegment = nil
             return false
         }
-        let effectiveDuration = player?.currentItem?.duration.seconds ?? delegate.duration
         let decision = SponsorBlockDecisionEngine.decide(
             at: time,
             segments: sponsorSegments,
@@ -106,7 +114,6 @@ public final class SponsorBlockSkipManager {
     public func skipToastSegment() {
         guard let seg = currentToastSegment else { return }
         currentToastSegment = nil
-        let effectiveDuration = player?.currentItem?.duration.seconds ?? delegate?.duration ?? 0
         if effectiveDuration > 0 && seg.end >= effectiveDuration - 2.0 {
             delegate?.handlePlaybackEnd()
             return

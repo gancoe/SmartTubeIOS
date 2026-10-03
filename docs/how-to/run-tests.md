@@ -1,4 +1,4 @@
-> status: current (2026-09-11)
+> status: current (2026-10-04)
 
 # How to run tests
 
@@ -40,13 +40,17 @@ it without more RAM.
 ## Commands
 
 - `just test-unit` — Swift Testing package tests, no simulator.
+- `just test-native-tvos` — focused native unit tests and tvOS Settings simulation,
+  rejecting failures, empty runs and skips. See [native tvOS](native-tvos.md).
 - `just test-ui-legacy` — UI tests, 3 parallel workers. Temporary until WS3-T3.4 adds the
   `Smoke`/`Live` test plans, at which point `just test-smoke`/`just test-ui` take over.
 - `just test-ui-one <SmartTubeUITests/Suite/testMethod>` — a single UI test.
 - Device/app log capture during a test run: `docs/how-to/device-logs.md`.
 
-## Known failure
+## Known quality limits
 
-`just test-unit` currently fails to build (pre-existing, not test-writing-related) — see
-`AGENTS.md`'s Gotchas. Native-macOS-only code in `TOSPlayerView.swift`/
-`TOSPlayerViewModel+WebBridge.swift` doesn't compile. Fixing it is WS4/WS5 scope.
+The personal fork fixes the native-macOS compile blockers. The full unit suite
+still has stale expectations and shared-state failures, and `just ci` stops at
+inherited lint violations. The focused native check does not establish a passing
+full repository gate. See the [playback review](../reviews/2026-10-04-native-playback.md)
+for measured results and remaining simulator/hardware limits.

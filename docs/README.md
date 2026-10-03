@@ -6,7 +6,7 @@ undiscoverable until it is. Keep this under 100 lines; anything that doesn't fit
 
 | Doc | What it is | Status | Last verified |
 |---|---|---|---|
-| [../AGENTS.md](../AGENTS.md) | Agent entry point: commands, rules, gotchas | current | 2026-09-10 |
+| [../AGENTS.md](../AGENTS.md) | Agent entry point: commands, rules, gotchas | current | 2026-10-04 |
 | [../CLAUDE.md](../CLAUDE.md) | Claude Code specifics, imports AGENTS.md | current | 2026-09-10 |
 | [../CONTEXT.md](../CONTEXT.md) | Domain glossary + architecture vocabulary | current | 2026-09-11 |
 | [architecture.md](architecture.md) | C4 container diagram, module map, playback pipeline, deep links | current | 2026-09-10 |
@@ -23,7 +23,10 @@ undiscoverable until it is. Keep this under 100 lines; anything that doesn't fit
 | [explanation/changelog-unreleased.md](explanation/changelog-unreleased.md) | Unreleased-changes draft notes | unverified | 2026-09-11 |
 | [explanation/task-89-short-detection-issue.md](explanation/task-89-short-detection-issue.md) | Shorts-detection issue investigation | unverified | 2026-09-11 |
 | [how-to/localization.md](how-to/localization.md) | Localization how-to | current | 2026-09-11 |
-| [how-to/run-tests.md](how-to/run-tests.md) | How to run tests, target simulator, one-time setup | current | 2026-09-11 |
+| [how-to/run-tests.md](how-to/run-tests.md) | How to run tests, target simulator, one-time setup | current | 2026-10-04 |
+| [how-to/native-tvos.md](how-to/native-tvos.md) | Personal native Apple TV build, focused checks and hardware acceptance | current | 2026-10-04 |
+| [reviews/2026-10-04-native-playback.md](reviews/2026-10-04-native-playback.md) | Playback review, regression evidence and remaining validation gaps | current | 2026-10-04 |
+| [examples/native-tvos-workflow.yml](examples/native-tvos-workflow.yml) | Optional Actions build template; not enabled | unverified | 2026-10-04 |
 | [how-to/device-logs.md](how-to/device-logs.md) | How to capture device/app logs (simulator + physical device) | current | 2026-09-11 |
 | [how-to/release.md](how-to/release.md) | How to cut a release | partial | 2026-09-11 |
 | [research/playing-methods.md](research/playing-methods.md) | All known video-ID→AVPlayer paths | research reference | 2026-09-11 |

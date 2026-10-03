@@ -36,6 +36,7 @@ extension PlaybackViewModel {
             playerLog.notice("[load] already loading \(video.id) — ignoring duplicate call")
             return
         }
+        invalidatePendingSeek()
         CrashlyticsLogger.setVideoContext(id: video.id, title: video.title)
         // Cancel any previous in-flight load so we never have two concurrent API
         // fetches for the same (or different) video running at the same time.
@@ -1173,6 +1174,7 @@ extension PlaybackViewModel {
         playerLog.notice(
             "[stop] stop() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s isLoading=\(self.isLoading)"
         )
+        invalidatePendingSeek()
         // Save watch position before stopping (mirrors VideoStateController)
         if settings.historyState == .enabled, duration > 0 {
             let pos = self.currentTime

@@ -45,6 +45,9 @@ build-native-tvos:
 test-tvos-settings:
     xcodebuild test -workspace {{workspace}} -scheme "Smart Tube" -destination "platform=tvOS Simulator,name={{tv_sim}}" -derivedDataPath {{derived}} -parallel-testing-enabled NO -only-testing:SmartTubeTVUITests/TVSettingsUITests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= CODE_SIGN_STYLE= DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= -quiet
 
+test-native-tvos:
+    {{root}}/scripts/test-native-tvos.sh
+
 test-unit:
     cd {{package}} && swift test --parallel 2>&1 | tail -30
 
