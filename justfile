@@ -4,7 +4,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 root      := justfile_directory()
 workspace := root + "/SmartTube.xcworkspace"
 package   := root + "/SmartTubeIOS"
-derived   := env_var_or_default("SMARTTUBE_DERIVED_DATA", "/Volumes/main/tempMac/DerivedData/SmartTube")
+derived   := env_var_or_default("SMARTTUBE_DERIVED_DATA", root + "/DerivedData/SmartTube")
 # Single source of truth for the target simulator. Override: `just sim="iPhone 17" test-ui`.
 sim       := env_var_or_default("SMARTTUBE_SIM", "iPhone 17")
 tv_sim    := env_var_or_default("SMARTTUBE_TV_SIM", "Apple TV")
@@ -39,12 +39,18 @@ build:
 build-tvos:
     xcodebuild build -workspace {{workspace}} -scheme "Smart Tube" -destination "platform=tvOS Simulator,name={{tv_sim}}" -derivedDataPath {{derived}} CODE_SIGNING_ALLOWED=NO -quiet
 
+build-native-tvos:
+    {{root}}/scripts/build-native-tvos.sh
+
+test-tvos-settings:
+    xcodebuild test -workspace {{workspace}} -scheme "Smart Tube" -destination "platform=tvOS Simulator,name={{tv_sim}}" -derivedDataPath {{derived}} -parallel-testing-enabled NO -only-testing:SmartTubeTVUITests/TVSettingsUITests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= CODE_SIGN_STYLE= DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= -quiet
+
 test-unit:
     cd {{package}} && swift test --parallel 2>&1 | tail -30
 
 # filter: `just test-unit-filter HLSManifestParserTests`
 test-unit-filter name:
-    cd {{package}} && swift test --filter {{name}} 2>&1 | tail -40
+    cd {{package}} && swift test --filter {{quote(name)}} 2>&1 | tail -40
 
 # temporary until WS3-T3.4 adds the Smoke/Live test plans
 test-ui-legacy:
