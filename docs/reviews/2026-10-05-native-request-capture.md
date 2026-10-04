@@ -116,3 +116,44 @@ not an inferred transaction response time.
 No physical native-metric capture or playback improvement has been established
 by these tests. The separately saved Stats for Nerds dismissal patch remains
 outside this diagnostic change.
+
+## Installed build and shutdown handoff, 5 October 2026 NZ time
+
+Measured installation source: `4cb22a6860e5b667f203d91adced8232ef14c49f`.
+The final tvOS Release archive succeeded. The packaged private configuration
+matched the prepared capture configuration. ATVLoadly reported a successful
+replacement of app record 4, with an empty queue and a retained unsigned IPA
+whose SHA-256 matched:
+
+`66f36c6ac2085d7e1c7fe8de5956ea0f4ac2528f346f211bdd2c594d557b9b6c`
+
+Local evidence: `tmp/native-metrics-release-verification.json` and
+`tmp/native-metrics-install-verification.json`. These records were rechecked
+at shutdown. Later documentation commits do not change the installed app.
+The rollback IPA from source `e8a275dc1ef3141a6dd031c12806d0688b8d1a5e`
+was retained and rehashed successfully:
+
+`2b0b43b50f9ee718b1e89266038b185f72ea4c78728342b856dff0c371711b7b`
+
+The Pi receiver accepts the new native schema and existing logs. Its synthetic
+roundtrip passed, but a shutdown check found zero physical events for the new
+capture UUID. Ordinary earlier playback logs are separate from this new
+native-metric acceptance gate. The playback cause and any improvement remain
+UNVERIFIED.
+
+Resume with one affected video at 1.5–2×, initially without seeking. Read the
+matching capture UUID from the private configuration and retrieve the Pi's
+events. The local ignored helper `tmp/check-native-device-capture.py` provides
+a safe compact summary; it does not start or renew a capture. Verify actual
+native segment and completed-switch events before analysing the failure.
+Allow the capture's existing bound to end; do not silently reset its UUID or
+deadline. Missing metrics or failure to reproduce is an inconclusive result.
+
+Keep [PR #12](https://github.com/gancoe/SmartTubeIOS/pull/12) in draft until this
+device gate is assessed. Do not mix in [Stats Back dismissal #11](https://github.com/gancoe/SmartTubeIOS/pull/11)
+or [cache invalidation #7](https://github.com/gancoe/SmartTubeIOS/pull/7).
+Those separate branches were not installed in this build.
+
+The user can leave the Apple TV off. No Mac replay harness or ongoing Mac
+capture is needed overnight. The Pi collector remains available for the next
+playback test. Configured IPAs and credentials stay private.
