@@ -18,6 +18,10 @@ extension PlaybackViewModel {
     }
 
     public func togglePlayPause() {
+        if Self.isMediaServicesReset(error) || Self.isMediaServicesReset(player.currentItem?.error) {
+            retryLoad()
+            return
+        }
         if videoEnded {
             videoEnded = false
             seek(to: 0)

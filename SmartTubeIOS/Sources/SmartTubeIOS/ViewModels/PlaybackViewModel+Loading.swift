@@ -37,6 +37,7 @@ extension PlaybackViewModel {
             return
         }
         invalidatePendingSeek()
+        savedPositionToRestore = nil
         CrashlyticsLogger.setVideoContext(id: video.id, title: video.title)
         // Cancel any previous in-flight load so we never have two concurrent API
         // fetches for the same (or different) video running at the same time.
@@ -72,6 +73,7 @@ extension PlaybackViewModel {
             wkHLSEarlyTaskVideoId = nil
             #endif
             currentVideo = video
+            setupRateObserver()
             isLoading = false
             isPlaying = false
             videoEnded = false
@@ -236,6 +238,7 @@ extension PlaybackViewModel {
     /// Resets the retry guard and reloads the current video from scratch.
     public func retryLoad() {
         guard let video = currentVideo else { return }
+        prepareRetryAfterMediaReset()
         error = nil
         retryAttempts = 0
         exhaustiveRetryTask?.cancel()
@@ -245,6 +248,7 @@ extension PlaybackViewModel {
         loadTask = Task { [weak self] in
             guard let self else { return }
             await VideoPreloadCache.shared.invalidatePlayerInfo(for: video.id)
+            guard !Task.isCancelled, self.currentVideo?.id == video.id else { return }
             await self.loadAsync(video: video)
         }
     }
@@ -316,6 +320,7 @@ extension PlaybackViewModel {
         // Firebase: a013be1c, regressed June 8 in 4.4(2) — still happening in 4.6.
         rateObserver?.invalidate()
         rateObserver = nil
+        cancelFailureObserver()
         #if canImport(WebKit)
         wkHLSEarlyTask?.cancel()
         wkHLSEarlyTask = nil
@@ -755,7 +760,7 @@ extension PlaybackViewModel {
 
             // Restore saved watch position (mirrors VideoStateController)
             let savedState = await VideoStateStore.shared.state(for: video.id)
-            if let pos = savedState?.position, pos > 5 {
+            if savedPositionToRestore == nil, let pos = savedState?.position, pos > 5 {
                 savedPositionToRestore = pos
                 playerLog.notice("Restoring position \(Int(pos))s for \(video.id)")
             }
@@ -1175,6 +1180,8 @@ extension PlaybackViewModel {
             "[stop] stop() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s isLoading=\(self.isLoading)"
         )
         invalidatePendingSeek()
+        cancelFailureObserver()
+        savedPositionToRestore = nil
         // Save watch position before stopping (mirrors VideoStateController)
         if settings.historyState == .enabled, duration > 0 {
             let pos = self.currentTime

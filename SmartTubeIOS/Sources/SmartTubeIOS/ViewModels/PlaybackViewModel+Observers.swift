@@ -13,12 +13,14 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 extension PlaybackViewModel {
 
     func setupTimeObserver() {
+        timeObserverPlayer = player
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: nil) { [weak self] time in
+        let source = player
+        let token = player.addPeriodicTimeObserver(forInterval: interval, queue: nil) { [weak self, weak source] time in
             guard let self else { return }
             let seconds = time.seconds
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.isCurrentPlayback(source) else { return }
                 // Don't overwrite the slider position or trigger SponsorBlock auto-seeks
                 // while the user is scrubbing. Auto-seeks call seek() → showControls() →
                 // scheduleControlsHide(), which cancels and restarts the 4 s hide-timer
@@ -38,17 +40,19 @@ extension PlaybackViewModel {
                 }
             }
         }
+        timeObserver = token
     }
 
     func setupRateObserver() {
+        setupFailureObserver()
         // KVO on player.rate so isPlaying stays in sync when the system externally
         // pauses the player (e.g. headphones removed, audio session interruption ends
         // without shouldResume). Without this, isPlaying stays true while the player
         // is actually silent, causing handleForeground() to re-start a ghost session.
-        rateObserver = player.observe(\.rate, options: [.new]) { [weak self] _, change in
+        rateObserver = player.observe(\.rate, options: [.new]) { [weak self] source, change in
             guard let self, let newRate = change.newValue else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            Task { @MainActor [weak self, weak source] in
+                guard let self, self.isCurrentPlayback(source) else { return }
                 // Ignore rate changes that we ourselves triggered (load/pause/resume/stop)
                 // by only acting when the player goes silent unexpectedly while we
                 // believed it was playing.
@@ -123,28 +127,7 @@ extension PlaybackViewModel {
                             }
                         }
                     } else if recoveryCount <= 3 {
-                        Task { @MainActor [weak self] in
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            guard let self, !self.isPlaying, self.player.rate == 0,
-                                !self.isQualityChangePending, !self.isSwappingItem
-                            else { return }
-                            let seekT = self.currentTime
-                            playerLog.notice(
-                                "[rateObserver] recovery#\(recoveryCount): seeking to \(seekT)s to flush pipeline")
-                            self.player.seek(
-                                to: CMTime(seconds: seekT, preferredTimescale: 600),
-                                toleranceBefore: .zero,
-                                toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600)
-                            ) { [weak self] _ in
-                                Task { @MainActor [weak self] in
-                                    guard let self, !self.isPlaying, self.player.rate == 0 else { return }
-                                    self.player.rate = Float(self.settings.playbackSpeed)
-                                    self.isPlaying = true
-                                    playerLog.notice(
-                                        "[rateObserver] recovery#\(recoveryCount): rate restored, isPlaying=true")
-                                }
-                            }
-                        }
+                        self.scheduleStallSeekRecovery(count: recoveryCount, source: source)
                     }
                 }
             }

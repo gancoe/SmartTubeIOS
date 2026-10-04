@@ -249,10 +249,15 @@ public final class PlaybackViewModel {
 
     // MARK: - AVPlayer
 
-    public let player: AVPlayer
+    public internal(set) var player: AVPlayer
+    @ObservationIgnored var makeRecoveryPlayer: @MainActor () -> AVPlayer = { AVPlayer() }
+    @ObservationIgnored nonisolated(unsafe) var failurePlayerObserver: NSKeyValueObservation?
+    @ObservationIgnored nonisolated(unsafe) var failureItemObserver: NSKeyValueObservation?
+    var failureObservationID: UInt = 0
     /// Monotonically increasing identity for the latest seek request.
     var seekID: UInt = 0
     @ObservationIgnored nonisolated(unsafe) var timeObserver: Any?
+    @ObservationIgnored nonisolated(unsafe) weak var timeObserverPlayer: AVPlayer?
     @ObservationIgnored nonisolated(unsafe) var audioSessionObserver: Any?
     @ObservationIgnored nonisolated(unsafe) var rateObserver: NSKeyValueObservation?
     /// True while the video is being routed to an external display via AirPlay.
@@ -504,8 +509,10 @@ public final class PlaybackViewModel {
     }
 
     deinit {
-        if let obs = timeObserver { player.removeTimeObserver(obs) }
+        if let obs = timeObserver { timeObserverPlayer?.removeTimeObserver(obs) }
         rateObserver?.invalidate()
+        failurePlayerObserver?.invalidate()
+        failureItemObserver?.invalidate()
         airPlayObserver?.invalidate()
         if let obs = audioSessionObserver { NotificationCenter.default.removeObserver(obs) }
         #if canImport(UIKit)

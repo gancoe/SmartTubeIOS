@@ -124,7 +124,7 @@ final class PlaybackQualityManager {
     // MARK: - Dependencies
 
     @ObservationIgnored weak var delegate: (any QualityDelegate)?
-    let player: any PlayerItemSwappable
+    var player: any PlayerItemSwappable
     @ObservationIgnored let session: URLSession
 
     // MARK: - Init

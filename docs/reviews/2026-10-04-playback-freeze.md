@@ -105,3 +105,70 @@ Apple TV cause. It does not verify decoded pixels or the app's automatic
 recovery. The existing app recovery guards require rate zero; this measured
 waiting state retains rate one. The diagnostic build can establish whether
 the physical session enters that same state before a recovery change is made.
+
+## Physical media-services reset capture
+
+A second user-supplied photo on 4 October 2026, report `D2C28701`, displays:
+
+- Playback paused, rate 0.00, no waiting reason.
+- Item failed; item and player errors both `AVFoundationErrorDomain#-11819`.
+- Loaded ranges 49.8 seconds ahead, with buffer-empty yes and likely-to-keep-up no.
+- VisionOS/HLS, presentation size 1920x1080; nominal bitrate 5.0 Mbps and last
+  download sample 89.7 Mbps.
+
+These are cited observations from the photo, not a continuous device trace.
+The tvOS SDK `AVError.h` binds -11819 to `AVErrorMediaServicesWereReset`.
+The alternative of an ordinary waiting-for-network state does not explain
+an item marked failed with this error. The preceding delivery, decoder and
+media-service events are unknown: the reset trigger remains UNVERIFIED.
+Loaded time ranges describe retained item metadata after failure, not proof
+that those seconds can still be decoded. The download sample is historical.
+
+The production status-stream replay was repeated and still returned unknown,
+ready, then nil for an item whose final state was failed. That confirms the
+post-ready observation gap independently of the physical reset trigger.
+
+## Media-services reset recovery patch
+
+A separate current-item watcher observes this specific failure throughout
+playback and exposes the existing error banner. The finite readiness stream
+is unchanged. Play or Try Again initiates a fresh AVPlayer, rebinds the quality,
+audio and SponsorBlock managers and player observers, and retains the latest
+requested position for the existing ready-item restore path. It does not
+change stream selection, codecs or the 1080p native stream cap.
+
+Recovery requires user action, following [Apple QA1749](https://developer.apple.com/library/archive/qa/qa1749/_index.html).
+iOS is excluded from this patch because its persistent player host needs a
+separate player-layer rebinding change; macOS provides the offline test seam.
+
+The initial production-seam test failed because a ready item followed by a
+media-services reset exposed no retry error (`tmp/item-failure-red.log`).
+A second RED run without the rebuild call failed the new-player and manager
+rebinding assertions (`tmp/item-failure-rebuild-red.log`). Six focused checks
+then passed (`tmp/item-failure-suite.log`), covering failure detection, Play
+rebuild, position preservation, replaced-item/video guards, queued stop
+cancellation, and error-domain discrimination. These inject real KVO events
+into controlled AVPlayer and AVPlayerItem subclasses; they do not reproduce
+a physical media-server crash or confirm restored physical playback.
+
+Final validation of the recovery patch:
+
+- Seven item-failure checks passed. The parked-item regression was first
+  observed failing in `tmp/item-failure-parked-red.log`, then passed after
+  re-establishing observation on the same-video fast path.
+- Final focused run: 116 tests in ten suites passed, with no skips.
+  Source: `tmp/media-reset-unit-final.log`.
+- Settings UI: eight passed with zero failures or skips.
+  Source: `tmp/native-tvos-tests.bQKtGr/settings.json`. This run preceded the
+  parked-item observer fix and the extraction of the existing delayed stall
+  seek into a helper. Final unit checks cover the updated source; the Release
+  archive will check final tvOS compilation.
+- Independent review reproduced the parked-reopen observation gap. That
+  finding was fixed and re-reviewed; final helper extraction review was clear.
+- `just ci` passed secrets, documentation links and strict formatting, then
+  stopped at 137 lint violations, the same count as before the patch.
+  Source: `tmp/media-reset-ci.log`. Full CI is not green.
+
+The patch has not yet been verified on the physical Apple TV. These checks
+establish reset detection and retry preparation through production code,
+not prevention of the media-services reset itself.
