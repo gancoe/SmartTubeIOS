@@ -6,7 +6,7 @@ This isolated diagnostics candidate extends `9f23dc7` and does not change stream
 
 The player samples its existing native item every two seconds while the player view is present. It emits state changes, a 15-second heartbeat, and every newly observed native error-log entry. Each record contains capture time, native error time, video ID, playback position, resolution, playback rate, media/viewing buffer, advertised/observed bitrate, transferred bytes, stalls and dropped frames. Error resource classification is a URL hint, not proof of the exact failed request. Captured resolution/buffer describe sampling time rather than the historical error timestamp.
 
-Raw URLs, signed queries, credentials and arbitrary native error comments are excluded. Known timeout comments are allowed; other comments remain redacted. The video ID is retained to reproduce the affected video.
+Raw URLs, signed queries, credentials and arbitrary native error comments are excluded. Known timeout comments and canonical `HTTP NNN` statuses extracted from native comments are allowed; other comments remain redacted. An extracted status describes the native comment, not a separately captured HTTP response. The video ID is retained to reproduce the affected video.
 
 ## Delivery and separation
 

@@ -62,3 +62,6 @@ The authenticated API is:
 The collector accepts only schema version `1`. Nullable fields may be omitted
 by the sender and are returned as JSON `null`; all other fields are required.
 The service does not log request headers or bodies.
+
+Error comments permit known timeout messages or a canonical `HTTP NNN` status
+extracted from the native error comment. The original HTTP comment is never sent.

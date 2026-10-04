@@ -212,6 +212,11 @@ extension PlaybackViewModel {
 
     static func errorLogCommentSummary(_ comment: String?) -> String {
         guard let comment, !comment.isEmpty else { return "—" }
+        if let range = comment.range(
+            of: #"(?<![A-Za-z0-9])HTTP[ \t]+[1-5][0-9]{2}(?![0-9])"#, options: .regularExpression)
+        {
+            return "HTTP \(comment[range].suffix(3))"
+        }
         let pattern = #"^(Media (file|playlist) not received|No response for media file) in [0-9]+(\.[0-9]+)?s$"#
         guard comment.range(of: pattern, options: .regularExpression) == comment.startIndex..<comment.endIndex else {
             return "Details redacted"

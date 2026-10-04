@@ -92,7 +92,7 @@ SAFE_ROUTE = re.compile(r"^[A-Za-z0-9/_. -]{1,100}$")
 RESOLUTION = re.compile(r"^(?:unknown|[1-9][0-9]{0,4}[x×][1-9][0-9]{0,4})$")
 TIMEOUT_COMMENT = re.compile(
     r"^(?:Media (?:file|playlist) not received in [0-9]+(?:\.[0-9]+)?s|"
-    r"No response for media file in [0-9]+(?:\.[0-9]+)?s|Details redacted|—)$"
+    r"No response for media file in [0-9]+(?:\.[0-9]+)?s|HTTP [1-5][0-9]{2}|Details redacted|—)$"
 )
 RESOURCE_SUMMARY = re.compile(
     r"^(?:unknown|(?:playlist URL|captions URL|audio URL \(MIME hint\)|"

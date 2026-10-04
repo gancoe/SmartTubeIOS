@@ -144,6 +144,23 @@ struct PlaybackDiagnosticsTests {
                 == "Details redacted")
     }
 
+    @Test("native HTTP errors retain only a canonical numeric status")
+    func reportsSafeHTTPStatus() {
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 401") == "HTTP 401")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("HTTP 401: https://cdn.example/?sig=secret\nCookie: secret")
+                == "HTTP 401")
+        #expect(PlaybackViewModel.errorLogCommentSummary("request failed: HTTP\t503 unavailable") == "HTTP 503")
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 4010 secret") == "Details redacted")
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 600 secret") == "Details redacted")
+        #expect(PlaybackViewModel.errorLogCommentSummary("secretHTTP 401") == "Details redacted")
+        var snapshot = StatsForNerdsSnapshot.empty
+        snapshot.errorLogComment = PlaybackViewModel.errorLogCommentSummary("HTTP 401: private URL")
+        let event = PlaybackViewModel.deliveryEvent(
+            snapshot, advertisedBitrate: nil, observedBitrate: nil, at: Date(timeIntervalSince1970: 1_000))
+        #expect(event.errorComment == "HTTP 401")
+    }
+
     @Test("error URL summaries distinguish media hints from playlist and caption URLs without credentials")
     func reportsSafeErrorResource() {
         #expect(PlaybackViewModel.errorResourceSummary(nil) == "unknown")

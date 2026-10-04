@@ -104,6 +104,24 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body, {"error": "invalid payload"})
 
+    def test_accepts_only_canonical_http_status_comments(self) -> None:
+        for comment in ("HTTP 401", "HTTP 503"):
+            payload = event()
+            payload["event_id"] = str(uuid.uuid4())
+            payload["error_comment"] = comment
+            status, _ = self.request("POST", "/v1/events", payload)
+            self.assertEqual(status, 201)
+        for comment in (
+            "HTTP 600",
+            "HTTP 4010",
+            "HTTP 401: secret",
+            "HTTP 401\nCookie: secret",
+        ):
+            payload = event()
+            payload["error_comment"] = comment
+            status, _ = self.request("POST", "/v1/events", payload)
+            self.assertEqual(status, 400)
+
     def test_rejects_unknown_fields_bad_payload_and_oversize(self) -> None:
         unknown = event()
         unknown["unexpected"] = True
