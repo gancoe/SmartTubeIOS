@@ -338,13 +338,26 @@ extension PlayerView {
             comments: vm.comments.comments,
             isLoading: vm.comments.isLoading,
             onDismiss: { showCommentsSheet = false },
-            focusNamespace: commentsOverlayNamespace
+            focusNamespace: commentsOverlayNamespace,
+            navigation: commentsNavigation,
+            continuation: vm.comments.continuation,
+            errorMessage: vm.comments.errorMessage,
+            replies: vm.comments.replies,
+            onLoadMore: { vm.comments.loadMore() },
+            onLoadReplies: { comment, loadMore in vm.comments.loadReplies(for: comment, loadMore: loadMore) },
+            onRetry: { loadComments() }
         )
         #else
         CommentsOverlayView(
             comments: vm.comments.comments,
             isLoading: vm.comments.isLoading,
-            onDismiss: { showCommentsSheet = false }
+            onDismiss: { showCommentsSheet = false },
+            continuation: vm.comments.continuation,
+            errorMessage: vm.comments.errorMessage,
+            replies: vm.comments.replies,
+            onLoadMore: { vm.comments.loadMore() },
+            onLoadReplies: { comment, loadMore in vm.comments.loadReplies(for: comment, loadMore: loadMore) },
+            onRetry: { loadComments() }
         )
         #endif
     }
@@ -353,9 +366,13 @@ extension PlayerView {
 
     func loadComments() {
         #if DEBUG && os(tvOS)
-        if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") { return }
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui"),
+            !ProcessInfo.processInfo.arguments.contains("--uitesting-comments-content")
+        {
+            return
+        }
         #endif
-        let videoId = (vm.playerInfo?.video ?? video).id
+        let videoId = vm.currentVideoId ?? video.id
         vm.comments.load(videoId: videoId)
     }
 

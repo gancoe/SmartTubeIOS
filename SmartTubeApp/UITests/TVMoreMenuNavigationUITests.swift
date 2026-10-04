@@ -168,4 +168,421 @@ final class TVMoreMenuNavigationUITests: XCTestCase {
             "Selecting the Quality row must open the quality picker")
     }
 }
+
+final class TVNativePlayerInteractionUITests: XCTestCase {
+    private var app: XCUIApplication!
+    private let remote = XCUIRemote.shared
+    private let initialVideo = "native-ui-current"
+    private let firstRelated = "native-ui-related-1"
+    private let secondRelated = "native-ui-related-2"
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = [
+            "--uitesting", "--uitesting-player-ui",
+            "--uitesting-deeplink-video=\(initialVideo)",
+            "--uitesting-inject-related-video-ids=\(firstRelated),\(secondRelated)",
+        ]
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+    }
+
+    override func tearDownWithError() throws {
+        app.terminate()
+        app = nil
+    }
+
+    private func openTestVideo() {
+        let open = app.buttons["Open test video"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        remote.press(.select)
+    }
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    private func wait(_ predicate: String, for element: XCUIElement, timeout: TimeInterval = 5) {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: predicate), object: element)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        if result != .completed {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        XCTAssertEqual(result, .completed)
+    }
+
+    private func relatedButton(_ id: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", id)).firstMatch
+    }
+
+    func testControlsHideAfterTwoSecondsWithoutBack() {
+        remote.press(.up)
+        let controls = element("player.playPauseButton")
+        XCTAssertTrue(controls.waitForExistence(timeout: 2))
+        wait("exists == false", for: controls, timeout: 4)
+        XCTAssertTrue(element("player.titleLabel").exists)
+    }
+
+    func testControlsHideAfterClosingMoreMenu() {
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let menu = element("player.moreMenu.speedRow")
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: menu)
+        wait("exists == false", for: element("player.playPauseButton"), timeout: 4)
+        XCTAssertTrue(element("player.titleLabel").exists)
+    }
+
+    func testDownBrowsesRecommendationsAndSelectsSecondVideo() {
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        wait("value == 'Selected'", for: first)
+        remote.press(.right)
+        let second = relatedButton(secondRelated)
+        wait("value == 'Selected'", for: second)
+        remote.press(.select)
+        wait("label == '\(secondRelated)'", for: element("player.titleLabel"))
+        XCTAssertFalse(first.exists)
+    }
+
+    private func openDescription() {
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let row = element("player.moreMenu.descriptionRow")
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        for _ in 0..<8 {
+            if row.hasFocus { break }
+            remote.press(.down)
+        }
+        XCTAssertTrue(row.hasFocus)
+        remote.press(.select)
+    }
+
+    func testBackClosesDescriptionAndKeepsCurrentVideo() {
+        for _ in 0..<3 {
+            openDescription()
+            let description = app.staticTexts["Test video description"]
+            XCTAssertTrue(description.waitForExistence(timeout: 3))
+            remote.press(.menu)
+            wait("exists == false", for: description)
+            XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+            wait("exists == false", for: element("player.playPauseButton"), timeout: 4)
+        }
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testSponsorToastCannotStealDescriptionCloseAction() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-description-toast")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openDescription()
+        let description = app.staticTexts["Test video description"]
+        XCTAssertTrue(description.waitForExistence(timeout: 3))
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Skip ")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 3))
+        XCTAssertFalse(skip.isEnabled)
+        remote.press(.select)
+        wait("exists == false", for: description)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        wait("enabled == true", for: skip)
+    }
+
+    func testBackClosesCommentsAndKeepsCurrentVideo() {
+        openComments()
+        let comments = app.staticTexts["No comments available."]
+        XCTAssertTrue(comments.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: comments)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    private func openComments() {
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let row = element("player.moreMenu.commentsRow")
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        for _ in 0..<8 {
+            if row.hasFocus { break }
+            remote.press(.down)
+        }
+        XCTAssertTrue(row.hasFocus)
+        remote.press(.select)
+    }
+
+    func testCommentsScrollToLaterRowsAndBackToEarlierRows() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-comments-content")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openComments()
+        XCTAssertTrue(app.staticTexts["Test comment 1"].waitForExistence(timeout: 3))
+        wait("value == 'Selected'", for: element("player.comments.close"))
+        for index in 1...12 {
+            remote.press(.down)
+            wait("value == 'Selected'", for: element("player.comments.comment.native-comment-\(index)"))
+        }
+        let later = element("player.comments.comment.native-comment-12")
+        wait("value == 'Selected'", for: later)
+        XCTAssertTrue(later.isHittable)
+        remote.press(.up)
+        wait("value == 'Selected'", for: element("player.comments.comment.native-comment-11"))
+        remote.press(.menu)
+        wait("exists == false", for: app.staticTexts["Test comment 1"])
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testCommentThreadBackReturnsToCommentsThenVideo() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-comments-content")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openComments()
+        let first = element("player.comments.comment.native-comment-1")
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        wait("value == 'Selected'", for: element("player.comments.close"))
+        remote.press(.down)
+        wait("value == 'Selected'", for: first)
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Test reply 1"].waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: app.staticTexts["Test reply 1"])
+        wait("value == 'Selected'", for: first)
+        remote.press(.menu)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    private func openPopulatedComments(extraArguments: [String] = []) {
+        app.terminate()
+        app.launchArguments.append("--uitesting-comments-content")
+        app.launchArguments.append(contentsOf: extraArguments)
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openComments()
+        wait("value == 'Selected'", for: element("player.comments.close"))
+    }
+
+    private func openFirstCommentThread() {
+        remote.press(.down)
+        wait("value == 'Selected'", for: element("player.comments.comment.native-comment-1"))
+        remote.press(.select)
+    }
+
+    func testCommentsAndRepliesLoadFurtherPagesWithRemote() {
+        openPopulatedComments()
+        openFirstCommentThread()
+        XCTAssertTrue(app.staticTexts["Test reply 1"].waitForExistence(timeout: 3))
+        for _ in 0..<4 { remote.press(.down) }
+        let repliesMore = element("player.comments.loadMoreReplies")
+        wait("value == 'Selected'", for: repliesMore)
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Test reply 3"].waitForExistence(timeout: 3))
+        XCTAssertFalse(repliesMore.exists)
+        remote.press(.menu)
+        wait("value == 'Selected'", for: element("player.comments.comment.native-comment-1"))
+        for index in 2...20 {
+            remote.press(.down)
+            wait("value == 'Selected'", for: element("player.comments.comment.native-comment-\(index)"))
+        }
+        remote.press(.down)
+        let commentsMore = element("player.comments.loadMore")
+        wait("value == 'Selected'", for: commentsMore)
+        remote.press(.select)
+        remote.press(.down)
+        let nextPage = element("player.comments.comment.native-comment-21")
+        wait("value == 'Selected'", for: nextPage)
+        XCTAssertTrue(nextPage.isHittable)
+        XCTAssertFalse(commentsMore.exists)
+        remote.press(.menu)
+        wait("exists == false", for: nextPage)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testReplyFailureCanRetryWithRemote() {
+        openPopulatedComments(extraArguments: ["--uitesting-comments-reply-error"])
+        openFirstCommentThread()
+        let retry = element("player.comments.retry")
+        XCTAssertTrue(retry.waitForExistence(timeout: 3))
+        remote.press(.down)
+        remote.press(.down)
+        wait("value == 'Selected'", for: retry)
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Test reply 1"].waitForExistence(timeout: 3))
+        XCTAssertFalse(retry.exists)
+        remote.press(.menu)
+        wait("value == 'Selected'", for: element("player.comments.comment.native-comment-1"))
+    }
+
+    func testAdvancingVideoDismissesPreviousCommentThread() {
+        openPopulatedComments(extraArguments: ["--uitesting-advance-on-play-pause"])
+        openFirstCommentThread()
+        XCTAssertTrue(app.staticTexts["Test reply 1"].waitForExistence(timeout: 3))
+        remote.press(.playPause)
+        wait("label == '\(firstRelated)'", for: element("player.titleLabel"))
+        XCTAssertFalse(element("player.comments.close").exists)
+        XCTAssertFalse(app.staticTexts["Test reply 1"].exists)
+        openComments()
+        XCTAssertTrue(element("player.comments.comment.native-comment-1").waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Test reply 1"].exists)
+    }
+
+    func testCreatorChannelOpensAndSelectsVideo() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-channel-content")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.up)
+        XCTAssertTrue(element("player.channelName").waitForExistence(timeout: 2))
+        XCTAssertTrue(element("player.channelName").isEnabled)
+        remote.press(.up)
+        remote.press(.left)
+        remote.press(.select)
+        let title = element("channel.title")
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "Test Creator")
+        let first = element("video.card.native-channel-video-1")
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        for _ in 0..<8 {
+            if first.value as? String == "Selected" { break }
+            remote.press(.down)
+        }
+        wait("value == 'Selected'", for: first)
+        remote.press(.select)
+        wait("label == 'Creator video 1'", for: element("player.titleLabel"))
+        remote.press(.menu)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+    }
+
+    func testBackClosesRecommendationsAndKeepsCurrentVideo() {
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testUpClosesRecommendationsAndKeepsCurrentVideo() {
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testRecommendationsCanCloseWhenCardsCannotAcquireNativeFocus() {
+        app.terminate()
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        XCTAssertFalse(first.hasFocus)
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testRecommendationsCanRepeatedlyOpenAndClose() {
+        for _ in 0..<4 {
+            remote.press(.down)
+            let first = relatedButton(firstRelated)
+            XCTAssertTrue(first.waitForExistence(timeout: 3))
+            remote.press(.up)
+            wait("exists == false", for: first)
+            XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        }
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testSponsorToastCannotTrapRecommendations() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-recommendations-toast")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Skip ")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 3))
+        remote.press(.right)
+        wait("value == 'Selected'", for: relatedButton(secondRelated))
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testEmptyRecommendationsCanReturnToVideo() {
+        app.terminate()
+        app.launchArguments.removeAll { $0.hasPrefix("--uitesting-inject-related-video-ids=") }
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.down)
+        let back = app.buttons["Back to video"]
+        XCTAssertTrue(back.waitForExistence(timeout: 3))
+        remote.press(.select)
+        wait("exists == false", for: back)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    private func launchAtEnd() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-player-ended")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(app.buttons["Play now"].waitForExistence(timeout: 15))
+    }
+
+    func testCancelUpNextKeepsCurrentVideo() {
+        launchAtEnd()
+        remote.press(.right)
+        remote.press(.select)
+        wait("exists == false", for: app.buttons["Play now"])
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testPlayNowStartsRecommendedVideo() {
+        launchAtEnd()
+        remote.press(.select)
+        wait("label == '\(firstRelated)'", for: element("player.titleLabel"))
+    }
+
+    func testDownFromUpNextBrowsesWithoutAdvancing() {
+        launchAtEnd()
+        remote.press(.down)
+        XCTAssertTrue(relatedButton(firstRelated).waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["Play now"].exists)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+}
 #endif

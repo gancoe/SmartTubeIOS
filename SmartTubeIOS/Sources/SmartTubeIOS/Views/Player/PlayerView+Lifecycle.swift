@@ -376,14 +376,19 @@ extension PlayerView {
             // focus engine to pick a child element or leaving focus on the previous screen.
             .focusScope(playerBodyNamespace)
             .prefersDefaultFocus(in: playerBodyNamespace)
-            .focusable(!usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations))
+            .focusable(!usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations || showCommentsSheet))
             .focused($playerFocused)
             .modifier(
-                ConditionalMoveCommand(enabled: !usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations))
-                { direction in
+                ConditionalMoveCommand(
+                    enabled: !usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations || showCommentsSheet)
+                ) { direction in
                     swipeLog.debug(
                         "[tv] onMoveCommand dir=\(String(describing: direction)) isTransitioning=\(isTransitioning) highlighted=\(String(describing: highlightedControl))"
                     )
+                    if showCommentsSheet {
+                        moveComments(direction)
+                        return
+                    }
                     if showRecommendations {
                         moveRecommendation(direction)
                         return
@@ -427,6 +432,10 @@ extension PlayerView {
                 swipeLog.notice(
                     "[tv] onTapGesture (select) — isAnyOverlayVisible=\(isAnyOverlayVisible) highlighted=\(String(describing: highlightedControl)) controlsVisible=\(vm.controlsVisible)"
                 )
+                if showCommentsSheet {
+                    selectCommentPanelItem()
+                    return
+                }
                 if showRecommendations {
                     selectRecommendation()
                     return
@@ -442,7 +451,15 @@ extension PlayerView {
                     highlightedControl = .playPause
                 }
             }
-            .onPlayPauseCommand { vm.togglePlayPause() }
+            .onPlayPauseCommand {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--uitesting-advance-on-play-pause") {
+                    vm.playNext()
+                    return
+                }
+                #endif
+                vm.togglePlayPause()
+            }
             .onExitCommand {
                 swipeLog.notice(
                     "[tv] onExitCommand — showMoreMenu=\(showMoreMenu) showQuality=\(showQualityPicker) showSpeed=\(showSpeedPicker) showSleep=\(showSleepTimerPicker) showCaption=\(showCaptionPicker) showAudio=\(showAudioTrackPicker) showDesc=\(showDescriptionSheet) showComments=\(showCommentsSheet) highlighted=\(String(describing: highlightedControl)) controlsVisible=\(vm.controlsVisible)"
@@ -485,7 +502,7 @@ extension PlayerView {
                     return
                 }
                 if showCommentsSheet {
-                    showCommentsSheet = false
+                    if commentsNavigation.back() { showCommentsSheet = false }
                     return
                 }
                 if highlightedControl != nil || vm.controlsVisible {
@@ -520,6 +537,14 @@ extension PlayerView {
                     }
                 } else {
                     moreMenuFocusedRow = nil
+                }
+            }
+            .onChange(of: showCommentsSheet) { _, visible in
+                if visible {
+                    commentsNavigation.reset()
+                    highlightedControl = nil
+                    skipToastButtonFocused = false
+                    playerFocused = true
                 }
             }
             .onChange(of: showSpeedPicker) { _, visible in
@@ -625,7 +650,7 @@ extension PlayerView {
                     // visible behind the overlay while it is open.
                     vm.controlsOverlayVisibilityChanged(true)
                     skipToastButtonFocused = false
-                    playerFocused = showRecommendations
+                    playerFocused = showRecommendations || showCommentsSheet
                 } else {
                     // Overlay dismissed — reclaim focus and clear nav state.
                     highlightedControl = nil
@@ -934,8 +959,15 @@ extension PlayerView {
             )
         }
         #endif
+        .onChange(of: vm.currentVideoId) { _, _ in
+            showCommentsSheet = false
+        }
         .navigationDestination(item: $channelDestination) { dest in
-            ChannelView(channelId: dest.channelId)
+            #if DEBUG && os(tvOS)
+            ChannelView(channelId: dest.channelId, api: ChannelView.uiTestAPIIfRequested() ?? vm.api)
+            #else
+            ChannelView(channelId: dest.channelId, api: vm.api)
+            #endif
         }
         #if !os(tvOS)
         .onChange(of: downloadService.state) { _, newState in

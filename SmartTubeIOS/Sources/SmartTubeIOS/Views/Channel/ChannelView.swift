@@ -15,11 +15,16 @@ private enum ChannelFilter: String, CaseIterable {
 
 public struct ChannelView: View {
     public let channelId: String
-    @State private var vm = ChannelViewModel()
+    private let channelAPI: (any InnerTubeAPIProtocol)?
+    @State private var vm: ChannelViewModel
     @State private var selectedVideo: Video?
     @State private var shortsPresentation: ShortsPresentation?
     @State private var channelDestination: ChannelDestination?
     @State private var filter: ChannelFilter = .all
+    #if os(tvOS)
+    @Namespace private var channelFocusNamespace
+    @FocusState private var focusedVideoID: String?
+    #endif
     @State private var isFollowedLocally = false
     @Environment(SettingsStore.self) private var store
     @Environment(AuthService.self) private var auth
@@ -29,9 +34,13 @@ public struct ChannelView: View {
     @Environment(PlayerRouter.self) private var playerRouter
     #endif
 
-    public init(channelId: String) {
+    public init(channelId: String, api: (any InnerTubeAPIProtocol)? = nil) {
         self.channelId = channelId
+        self.channelAPI = api
+        _vm = State(initialValue: ChannelViewModel(api: api ?? InnerTubeAPI()))
     }
+
+    private var playbackAPI: InnerTubeAPI { channelAPI as? InnerTubeAPI ?? api }
 
     public var body: some View {
         Group {
@@ -43,6 +52,16 @@ public struct ChannelView: View {
                 content
             }
         }
+        #if os(tvOS)
+        .focusScope(channelFocusNamespace)
+        .defaultFocus($focusedVideoID, filteredVideos.first?.id)
+        .task(id: filteredVideos.first?.id) {
+            guard let id = filteredVideos.first?.id else { return }
+            try? await Task.sleep(for: TVPlayerFocus.settleDelay)
+            guard !Task.isCancelled else { return }
+            focusedVideoID = id
+        }
+        #endif
         .navigationTitle(vm.channel?.title ?? "Channel")
         .onAppear { vm.load(channelId: channelId) }
         .task(id: vm.channel?.id) {
@@ -51,16 +70,16 @@ public struct ChannelView: View {
         }
         #if !os(iOS) && !os(macOS)
         .fullScreenCover(item: $selectedVideo) { video in
-            PlayerView(video: video, api: api)
+            PlayerView(video: video, api: playbackAPI)
         }
         #endif
         #if os(macOS)
         .navigationDestination(item: $selectedVideo) { video in
-            PlayerView(video: video, api: api)
+            PlayerView(video: video, api: playbackAPI)
         }
         #endif
         .navigationDestination(item: $channelDestination) { dest in
-            ChannelView(channelId: dest.channelId)
+            ChannelView(channelId: dest.channelId, api: channelAPI)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChannel)) { note in
             guard let channelId = note.userInfo?["channelId"] as? String, !channelId.isEmpty else { return }
@@ -68,7 +87,7 @@ public struct ChannelView: View {
         }
         #if !os(macOS)
         .fullScreenCover(item: $shortsPresentation) { target in
-            ShortsPlayerView(videos: target.videos, startIndex: target.startIndex, api: api)
+            ShortsPlayerView(videos: target.videos, startIndex: target.startIndex, api: playbackAPI)
         }
         #endif
         .alert("Error", isPresented: .constant(vm.error != nil), presenting: vm.error) { _ in
@@ -169,7 +188,7 @@ public struct ChannelView: View {
                             .accessibilityIdentifier("video.card.\(video.id)")
                             .onTapGesture {
                                 #if os(iOS)
-                                playerRouter.open(video: video, api: api)
+                                playerRouter.open(video: video, api: playbackAPI)
                                 #else
                                 selectedVideo = video
                                 #endif
@@ -190,6 +209,8 @@ public struct ChannelView: View {
                             ForEach(rowVideos) { video in
                                 VideoCardView(video: video, compact: false, onSelect: { selectedVideo = video })
                                     .frame(maxWidth: .infinity)
+                                    .focused($focusedVideoID, equals: video.id)
+                                    .prefersDefaultFocus(video.id == videos.first?.id, in: channelFocusNamespace)
                                     .accessibilityIdentifier("video.card.\(video.id)")
                             }
                             let remainder = columnCount - rowVideos.count
@@ -215,7 +236,7 @@ public struct ChannelView: View {
                             .accessibilityIdentifier("video.card.\(video.id)")
                             .onTapGesture {
                                 #if os(iOS)
-                                playerRouter.open(video: video, api: api)
+                                playerRouter.open(video: video, api: playbackAPI)
                                 #else
                                 selectedVideo = video
                                 #endif
@@ -304,6 +325,7 @@ public struct ChannelView: View {
         }
         .padding()
         .background(.background)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("channel.header")
     }
 

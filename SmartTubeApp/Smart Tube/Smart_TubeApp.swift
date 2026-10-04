@@ -80,7 +80,12 @@ struct SmartTubeTVApp: App {
         {
             let id = String(argument.dropFirst("--uitesting-deeplink-video=".count))
             TVPlayerUITestHost(
-                video: Video(id: id, title: id, channelTitle: "Test Channel", description: "Test video description"),
+                video: Video(
+                    id: id, title: id, channelTitle: "Test Channel",
+                    channelId: ProcessInfo.processInfo.arguments.contains("--uitesting-channel-content")
+                        ? "UCNativePlayerTest" : nil,
+                    description: "Test video description"
+                ),
                 api: api
             )
         } else {

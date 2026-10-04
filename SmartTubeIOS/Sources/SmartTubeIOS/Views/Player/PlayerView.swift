@@ -71,6 +71,7 @@ public struct PlayerView: View {
     /// Drives the quality-change toast shown after the user picks a resolution.
     @State var qualityToastMessage: String?
     #if os(tvOS)
+    @State var commentsNavigation = CommentsPanelNavigation()
     @State var showRecommendations = false
     @State var highlightedRecommendationID: String?
     @FocusState var playerFocused: Bool

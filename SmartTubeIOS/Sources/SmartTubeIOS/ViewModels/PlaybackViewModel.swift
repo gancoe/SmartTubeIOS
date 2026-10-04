@@ -517,7 +517,11 @@ public final class PlaybackViewModel {
             api: api,
             logError: { msg in playerLog.error("[likeDislike] \(msg)") }
         )
+        #if DEBUG && os(tvOS)
+        self.comments = CommentsController.uiFixtureIfRequested(api: api) ?? CommentsController(api: api)
+        #else
         self.comments = CommentsController(api: api)
+        #endif
 
         player.allowsExternalPlayback = true
         #if canImport(UIKit)

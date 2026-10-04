@@ -621,12 +621,16 @@ extension InnerTubeAPI {
         return body
     }
 
-    // MARK: - Private player helpers
+    // MARK: - Player helpers
 
-    private func parsePlayerInfo(from json: [String: Any], videoId: String) throws -> PlayerInfo {
+    func parsePlayerInfo(from json: [String: Any], videoId: String) throws -> PlayerInfo {
         let videoDetails = json["videoDetails"] as? [String: Any]
         let title = videoDetails?["title"] as? String ?? ""
         let channelTitle = videoDetails?["author"] as? String ?? ""
+        let channelId = (videoDetails?["channelId"] as? String).flatMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         let description = videoDetails?["shortDescription"] as? String
         let durationStr = videoDetails?["lengthSeconds"] as? String
         let duration = durationStr.flatMap { Double($0) }
@@ -797,6 +801,7 @@ extension InnerTubeAPI {
             id: videoId,
             title: title,
             channelTitle: channelTitle,
+            channelId: channelId,
             description: description,
             thumbnailURL: thumbURL,
             duration: duration,

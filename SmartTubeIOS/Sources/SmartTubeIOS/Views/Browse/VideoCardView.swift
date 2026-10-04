@@ -86,6 +86,9 @@ public struct VideoCardView: View {
             localProgress = await VideoStateStore.shared.state(for: video.id)?.watchedFraction
         }
         .task(id: video.id) {
+            #if DEBUG && os(tvOS)
+            if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") { return }
+            #endif
             await VideoPreloadCache.shared.prefetch(
                 videoId: video.id,
                 sponsorCategories: store.settings.activeSponsorCategories,
@@ -352,14 +355,20 @@ public struct VideoCardView: View {
         // • .focusable() between contextMenu and onTapGesture keeps the view in the
         //   focus engine so D-pad UP/DOWN can reach it.
         cardContent
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
             .focusable()
             .onTapGesture { onSelect?() }
             .focused($isFocused)
+            .accessibilityValue(isFocused ? "Selected" : "")
             .onAppear { feedLog.info("[feed] id=\(self.video.id) title=\(self.video.title)") }
             .onChange(of: isFocused) { _, newValue in
                 focusLog.info("[VideoCard] isFocused=\(newValue) id=\(self.video.id)")
                 #if canImport(WebKit)
                 if newValue, !video.isShort {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") { return }
+                    #endif
                     let videoId = video.id
                     Task(priority: .background) {
                         await YouTubeWebViewHLSExtractor.preWarm(videoId: videoId)

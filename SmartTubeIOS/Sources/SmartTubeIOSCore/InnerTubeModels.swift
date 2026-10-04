@@ -38,6 +38,39 @@ public struct Comment: Sendable, Identifiable {
     public let likeCount: String
     public let publishedTime: String
     public let isLiked: Bool
+    public let replyCount: Int?
+    public let repliesContinuation: String?
+    public let inlineReplies: [Comment]
+
+    public init(
+        id: String, author: String, authorAvatarURL: URL? = nil, text: String,
+        likeCount: String = "", publishedTime: String = "", isLiked: Bool = false,
+        replyCount: Int? = nil, repliesContinuation: String? = nil, inlineReplies: [Comment] = []
+    ) {
+        self.id = id
+        self.author = author
+        self.authorAvatarURL = authorAvatarURL
+        self.text = text
+        self.likeCount = likeCount
+        self.publishedTime = publishedTime
+        self.isLiked = isLiked
+        self.replyCount = replyCount
+        self.repliesContinuation = repliesContinuation
+        self.inlineReplies = inlineReplies
+    }
+}
+
+// MARK: - CommentPage
+
+/// A page of comments and the continuation for the same level of the response.
+public struct CommentPage: Sendable {
+    public let comments: [Comment]
+    public let continuation: String?
+
+    public init(comments: [Comment], continuation: String? = nil) {
+        self.comments = comments
+        self.continuation = continuation
+    }
 }
 
 // MARK: - EndCard

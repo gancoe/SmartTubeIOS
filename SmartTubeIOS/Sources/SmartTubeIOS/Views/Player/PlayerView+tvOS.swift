@@ -84,7 +84,7 @@ extension PlayerView {
             || showDescriptionSheet || showCommentsSheet || showRecommendations || vm.pendingAutoplayVideo != nil
     }
 
-    var usesNativeOverlayFocus: Bool { isAnyOverlayVisible && !showRecommendations }
+    var usesNativeOverlayFocus: Bool { isAnyOverlayVisible && !showRecommendations && !showCommentsSheet }
 
     func openRecommendations() {
         highlightedControl = nil
