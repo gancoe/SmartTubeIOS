@@ -169,6 +169,88 @@ Final validation of the recovery patch:
   stopped at 137 lint violations, the same count as before the patch.
   Source: `tmp/media-reset-ci.log`. Full CI is not green.
 
-The patch has not yet been verified on the physical Apple TV. These checks
-establish reset detection and retry preparation through production code,
-not prevention of the media-services reset itself.
+The user subsequently reported that Try Again restores physical playback,
+but that freezing recurs after roughly two to three minutes. That is a user
+report, not a measured sustained-playback run. The recurring reset trigger
+remains UNVERIFIED.
+
+## Progressive prefetch during HLS
+
+The user's [Expo report](https://github.com/expo/expo/issues/18125#issuecomment-1192962562)
+from 22 July 2022 describes excessive media instances and incorrect HTTP
+byte ranges as possible causes of the same error. Its claimed numerical
+decoder limit is not a verified tvOS limit.
+
+Source tracing confirms that VisionOS HLS success invokes `launchPhase2`.
+That method previously started progressive prefetch even when `info.hlsURL`
+was present. With adaptive audio and a non-Auto preference, the preferred
+quality prefetch opens separate video and audio AVURLAssets and loads their
+tracks in a detached task. Without adaptive audio it first fetches AndroidVR
+player information. Cancelling the stored prefetch task cannot cancel those
+detached track loads. The user confirmed using a fixed quality such as
+1080p, so the preferred-quality condition is relevant to the reported
+setup. This is unnecessary media work alongside HLS, not
+evidence of fifteen concurrent decoders or proof of the reset trigger.
+
+The patch prevents both progressive prefetch branches when the successful
+playback route is HLS,
+and cancels and releases any stored older prefetch task. Related-video,
+SponsorBlock and other Phase 2 work remains enabled. Non-HLS prefetch is
+preserved; its existing detached-load cancellation limitation remains.
+
+Production-launch tests first failed three expectations for HLS with and
+without adaptive audio and replacement of an older prefetch task. They then
+passed after the patch, together with the non-HLS compatibility check.
+Review also caught the distinction between an available HLS URL and the
+route that actually succeeded. A further test first failed when HLS metadata
+suppressed progressive fallback prefetch, then passed after the launch
+received the actual route. Sources: `tmp/hls-prefetch-red.log`,
+`tmp/hls-prefetch-green.log`, `tmp/hls-prefetch-route-red.log`,
+`tmp/hls-prefetch-route-green.log`. The tests
+exercise the task-launch boundary without network or a copied decision
+algorithm. They do not simulate physical decoder exhaustion.
+
+Byte-range handling remains a separate open hypothesis. The playlist loader
+responds with the entire fetched body, without slicing to the resource
+request's offset and length. Whether nonzero offsets occur in the affected
+HLS playback is UNVERIFIED; a real request trace is needed before attributing
+the freeze to this behavior.
+
+Final local checks for the prefetch patch:
+
+- 120 focused tests in eleven suites passed without skips. Source:
+  `tmp/hls-prefetch-unit-final.log`.
+- HLS detection now compares the selected URL to `info.hlsURL`, rather than
+  deriving the route from a log label. This also covers the existing
+  `VR→HLS/upgrade` labels that omit the old `/HLS` marker.
+- Prefetch launch and its existing helpers were extracted into
+  `PlaybackViewModel+Prefetch.swift` to keep new routing logic outside the
+  fallback decomposition. Non-HLS detached track-load cancellation is
+  unchanged and remains a separate limitation.
+- `just ci` passed secrets, documentation links and strict formatting, then
+  failed at 138 lint violations. Source: `tmp/hls-prefetch-ci-final.log`.
+  Compared with the previous 137-violation run, the existing fallback
+  file-length violation is newly exposed by its stale baseline entry. The
+  fallback file became shorter, not longer; no baseline was expanded.
+  Full CI remains blocked.
+- Passive log retrieval through Mac CoreDevice and the Pi's existing RSD
+  signer did not obtain physical Apple TV logs. The signer has no passive
+  syslog/crash command; network crashreport/syslog clients found no device.
+  Source: `tmp/live-device-log-feasibility.txt`. No pairing or install was
+  performed for those checks.
+
+Physical sustained playback with this patch is still required before
+calling the recurring freeze fixed.
+
+The bounded loader experiment also reproduced a separate progressive-file
+failure: the unmodified loader returned an entire MP4 body for a two-byte
+request and AVPlayer failed with -11850. An ignored-copy-only change serving
+the requested bytes reached ready/playing. Master and variant HLS requests
+observed in the local run asked for the complete playlist at offset zero.
+Both direct and proxy HLS advanced for sixty seconds without stalls. These
+runs did not reach the reported two-to-three-minute trigger window and did
+not reproduce -11819. The harness maps loader HTTPS URLs to local HTTP using
+URLProtocol; it does not test real YouTube CDN TLS or physical tvOS.
+Sources: `tmp/hls-stall-simulation/direct-long.jsonl`,
+`tmp/hls-stall-simulation/proxy-long.jsonl`,
+`tmp/hls-stall-simulation/range-probe.jsonl` and the loader probe logs.
