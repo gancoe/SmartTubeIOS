@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 workspace="${SMARTTUBE_WORKSPACE:-$repo_root/SmartTube.xcworkspace}"
 scheme="${SMARTTUBE_TV_SCHEME:-Smart Tube}"
+diagnostics_config="${SMARTTUBE_DIAGNOSTICS_CONFIG:-}"
 release_dir="${SMARTTUBE_NATIVE_TV_RELEASE_DIR:-$repo_root/releases}"
 [[ "$workspace" = /* ]] || workspace="$repo_root/$workspace"
 [[ "$release_dir" = /* ]] || release_dir="$repo_root/$release_dir"
@@ -86,6 +87,11 @@ if find "$app_path" -name 'GoogleService-Info.plist' -print -quit | grep -q .; t
     die "refusing to package a Firebase GoogleService-Info.plist"
 fi
 
+if [[ -n "$diagnostics_config" ]]; then
+    command -v python3 >/dev/null 2>&1 || die "python3 is required to configure playback diagnostics"
+    python3 "$repo_root/scripts/configure-playback-diagnostics.py" "$diagnostics_config" "$app_path"
+fi
+
 mkdir -p -- "$staging_dir/Payload"
 ditto "$app_path" "$staging_dir/Payload/Smart Tube.app"
 (
@@ -117,6 +123,7 @@ working_tree="$(git -C "$repo_root" status --porcelain | tr '\n' ';')"
     printf 'display_name: %s\n' "$display_name"
     printf 'signing: unsigned (CODE_SIGNING_ALLOWED=NO, CODE_SIGNING_REQUIRED=NO)\n'
     printf 'device_validation: not performed\n'
+    printf 'playback_diagnostics: %s\n' "$([[ -n "$diagnostics_config" ]] && printf configured || printf disabled)"
     printf 'built_at_utc: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 } > "$staged_provenance_path"
 

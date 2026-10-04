@@ -60,6 +60,7 @@ struct StatsForNerdsOverlay: View {
             if snapshot.errorLog != "—" {
                 row("Last log event", errorEventTiming)
                 row("Log comment", snapshot.errorLogComment)
+                row("Log URL hint", snapshot.errorLogResource)
             }
             row("TTP (low-q)", snapshot.timeToPlayMs > 0 ? "\(snapshot.timeToPlayMs) ms" : "—")
             row("TTP (hi-q)", snapshot.timeToHighQualityMs > 0 ? "\(snapshot.timeToHighQualityMs) ms" : "—")
