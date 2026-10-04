@@ -58,6 +58,13 @@ public struct TTLCache<Key: Hashable, Value> {
         store.removeValue(forKey: key)
     }
 
+    mutating func invalidate(where predicate: (Key) -> Bool) {
+        let matchingKeys = store.keys.filter(predicate)
+        for key in matchingKeys {
+            store.removeValue(forKey: key)
+        }
+    }
+
     public mutating func invalidateAll() {
         store.removeAll()
     }

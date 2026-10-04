@@ -42,8 +42,10 @@ public struct HLSManifestCache {
         cache.set(variants, for: videoId)
     }
 
-    /// Removes a specific video's cache entry (e.g. after a 403 to force a fresh fetch).
+    /// Removes all of a video's cache entries (e.g. after a 403 to force a fresh fetch).
     public mutating func invalidate(for videoId: String) {
-        cache.invalidate(videoId)
+        cache.invalidate { key in
+            key == videoId || key.hasPrefix("\(videoId)|")
+        }
     }
 }
