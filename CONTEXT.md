@@ -30,6 +30,8 @@ Naming a new module after a concept not listed here requires adding the term in 
   TOS, and Shorts players so SponsorBlock/watch-history/Now-Playing wiring isn't tripled.
 - **Player engine** — the underlying playback technology (AVPlayer vs. WKWebView/IFrame) as
   distinct from the view model that drives it.
+- **Native decoder capability** — a VideoToolbox support query used to decide whether to
+  attempt a codec. It does not establish successful AVPlayer playback.
 - **Queue** — the ordered list of upcoming videos (`CurrentQueueStore`), independent of any one
   feed.
 - **Watch state / Watch history / Watchtime reporting** — *watch state* is per-video playback

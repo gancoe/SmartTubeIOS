@@ -90,7 +90,8 @@ final class PlaybackQualityManager {
     var hlsVariantURLs: [Int: URL] = [:]
     private var hlsPlaybackUserAgent = InnerTubeClients.Web.userAgent
     private var hlsPlaybackMaximumHeight: Int? = nil
-    private var hlsRequiredVideoCodec: String? = nil
+    private var hlsAllowedVideoCodecs: [String]?
+    var allowsNativeVP9: Bool { hlsAllowedVideoCodecs?.contains("vp09.00") == true }
     @ObservationIgnored private var nativeHLSProxyLoader: YTHLSProxyLoader? = nil
     /// `true` when the current stream is a muxed (360p) fallback.
     /// Quality-switch attempts while muxed trigger fresh WKWebView extraction
@@ -144,7 +145,7 @@ final class PlaybackQualityManager {
         hlsVariantURLs = [:]
         hlsPlaybackUserAgent = InnerTubeClients.Web.userAgent
         hlsPlaybackMaximumHeight = nil
-        hlsRequiredVideoCodec = nil
+        hlsAllowedVideoCodecs = nil
         nativeHLSProxyLoader = nil
         isMuxedFallback = false
         hasAppliedH264Cap = false
@@ -316,16 +317,16 @@ final class PlaybackQualityManager {
     func configureHLSPlayback(
         userAgent: String,
         maximumHeight: Int?,
-        requiredVideoCodec: String?
+        requiredVideoCodec: String? = nil, allowedVideoCodecs: [String]? = nil
     ) {
         hlsPlaybackUserAgent = userAgent
         hlsPlaybackMaximumHeight = maximumHeight
-        hlsRequiredVideoCodec = requiredVideoCodec
+        hlsAllowedVideoCodecs = allowedVideoCodecs ?? requiredVideoCodec.map { [$0] }
         nativeHLSProxyLoader = nil
     }
 
     func makeHLSAsset(url: URL, options: [String: Any]) -> AVURLAsset {
-        guard let requiredVideoCodec = hlsRequiredVideoCodec,
+        guard let allowedVideoCodecs = hlsAllowedVideoCodecs,
             let maximumVideoHeight = hlsPlaybackMaximumHeight,
             let proxyURL = url.proxyURL
         else {
@@ -335,7 +336,7 @@ final class PlaybackQualityManager {
         let loader = YTHLSProxyLoader(
             ua: hlsPlaybackUserAgent,
             maximumVideoHeight: maximumVideoHeight,
-            requiredVideoCodec: requiredVideoCodec
+            allowedVideoCodecs: allowedVideoCodecs
         )
         let asset = AVURLAsset(url: proxyURL, options: options)
         asset.resourceLoader.setDelegate(loader, queue: .global(qos: .userInitiated))
@@ -470,7 +471,8 @@ final class PlaybackQualityManager {
     /// Fetches the HLS master manifest and returns a map of stream height → variant playlist URL.
     func fetchHLSVariantURLs(
         url: URL,
-        userAgent: String = InnerTubeClients.Web.userAgent
+        userAgent: String = InnerTubeClients.Web.userAgent,
+        maximumHeight: Int? = nil, allowedVideoCodecs: [String]? = nil
     ) async -> [Int: URL] {
         var request = URLRequest(url: url)
         // Use the web browser (Chrome) UA to fetch HLS master manifests.
@@ -492,7 +494,14 @@ final class PlaybackQualityManager {
             playerLog.notice("HLS manifest fetch failed — showing all quality options")
             return [:]
         }
-        let variants = parseHLSMasterManifest(text, baseURL: url.deletingLastPathComponent())
+        let filtered: String
+        if let maximumHeight, let allowedVideoCodecs {
+            filtered = filterHLSVariants(
+                text, maximumHeight: maximumHeight, allowedVideoCodecs: allowedVideoCodecs)
+        } else {
+            filtered = text
+        }
+        let variants = parseHLSMasterManifest(filtered, baseURL: url.deletingLastPathComponent())
         playerLog.notice("HLS manifest parsed: heights=\(variants.keys.sorted().reversed())")
         return variants
     }

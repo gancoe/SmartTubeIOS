@@ -5,7 +5,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 mkdir -p tmp
 report_dir="$(mktemp -d "$repo_root/tmp/native-tvos-tests.XXXXXX")"
-unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|PlaybackDiagnosticsTests|PlaybackItemFailureTests|PlaybackPrefetchTests|PlaybackEndObserverTests|PlaybackControlsVisibilityTests|PlaybackIdleTimerTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests|CommentPagesTests|CommentsControllerTests|CommentsPanelNavigationTests|ChannelPlayerMetadataTests)/'
+unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|PlaybackDiagnosticsTests|PlaybackItemFailureTests|PlaybackPrefetchTests|PlaybackEndObserverTests|PlaybackControlsVisibilityTests|PlaybackIdleTimerTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests|CommentPagesTests|CommentsControllerTests|CommentsPanelNavigationTests|ChannelPlayerMetadataTests|HLSManifestParserTests|VisionOSPlaybackTests|Native4KHLSManifestTests|Native4KHLSPlaybackPolicyTests|VisionOSNativeStreamSourceTests|Native4KRecoveryTests)/'
 
 just --command swift test --package-path SmartTubeIOS --filter "$unit_filter" 2>&1 | tee "$report_dir/unit.log"
 just --command python3 - "$report_dir/unit.log" <<'PY'
@@ -15,7 +15,8 @@ import sys
 
 log = pathlib.Path(sys.argv[1]).read_text()
 result = re.search(r'Test run with (\d+) tests? in (\d+) suites? passed', log)
-if result is None or int(result[1]) == 0 or 'skipped' in log.lower():
+skipped = re.search(r'\bskipped\b', re.sub(r'"[^"\n]*"', '', log), re.IGNORECASE)
+if result is None or int(result[1]) == 0 or skipped:
     raise SystemExit('Native unit checks must execute tests and pass without skips.')
 PY
 

@@ -37,7 +37,7 @@ struct VisionOSPlaybackTests {
     func visionOSHLSClientPolicy() {
         let policy = HLSPlaybackPolicy.resolve(label: "VisionOS/HLS", isHLS: true)
         #expect(policy.userAgent == InnerTubeClients.VisionOS.userAgent)
-        #expect(policy.filtersMasterManifest)
+        #expect(policy.filtersManifest)
         #expect(policy.requiresH264)
     }
 
@@ -72,7 +72,7 @@ struct VisionOSPlaybackTests {
         let policy = HLSPlaybackPolicy.resolve(label: "WebSafari[1]/HLS", isHLS: true)
         #expect(policy.userAgent == InnerTubeClients.WebSafari.userAgent)
         #expect(policy.maximumHeight == nil)
-        #expect(!policy.filtersMasterManifest)
+        #expect(!policy.filtersManifest)
     }
 
     @Test("filtered master keeps audio while removing VP9 and UHD variants")

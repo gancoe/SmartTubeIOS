@@ -26,6 +26,17 @@ struct StatsForNerdsOverlay: View {
                     valueId: "stats.selectedQuality")
             }
             row("Codec metadata", snapshot.codec)
+            #if os(tvOS)
+            row(
+                "Device",
+                "\(NativeVideoDecoderCapabilities.current.hardwareModel) · \(NativeVideoDecoderCapabilities.current.osVersion)"
+            )
+            row("Decoder hardware", NativeVideoDecoderCapabilities.current.summary)
+            row(
+                "VP9 opt-in",
+                "requested=\(NativeVideoDecoderCapabilities.current.didRequestSupplementalVP9 ? "yes" : "no") · before=\(NativeVideoDecoderCapabilities.current.vp9HardwareDecodeSupportedBeforeOptIn ? "yes" : "no")"
+            )
+            #endif
             row("Nominal Bitrate", snapshot.nominalBitrate)
             row("Download sample", snapshot.observedBitrate)
             row("Dropped Frames", "\(snapshot.droppedFrames)")

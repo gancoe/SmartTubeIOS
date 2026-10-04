@@ -12,6 +12,14 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 
 extension PlaybackViewModel {
 
+    func rejectNativeVP9AfterStall() {
+        guard qualityManager.allowsNativeVP9 else { return }
+        nativeVP9Rejected = true
+        let position = pendingSeekTarget ?? currentTime
+        savedPositionToRestore = position.isFinite ? max(0, position) : 0
+        invalidatePendingSeek()
+    }
+
     func setupTimeObserver() {
         timeObserverPlayer = player
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
@@ -112,6 +120,10 @@ extension PlaybackViewModel {
                         // another wasted seek. Guard on exhaustiveRetryTask == nil to avoid
                         // launching duplicate retries if further stalls fire during retry.
                         if let video = self.currentVideo {
+                            // A native VP9 route that reaches this loop has already failed
+                            // after readiness. Reject it before the retry chain resolves a
+                            // fresh VisionOS source, so recovery proceeds through H.264 once.
+                            self.rejectNativeVP9AfterStall()
                             playerLog.notice(
                                 "[rateObserver] rapid stall loop — \(recoveryCount) stalls in \(Int(elapsed))s — escalating to exhaustiveRetry"
                             )

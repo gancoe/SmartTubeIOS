@@ -42,6 +42,8 @@ extension PlaybackViewModel {
         CrashlyticsLogger.setVideoContext(id: video.id, title: video.title)
         // Cancel any previous in-flight load so we never have two concurrent API
         // fetches for the same (or different) video running at the same time.
+        nativeVP9RecoveryTask?.cancel()
+        nativeVP9RecoveryTask = nil
         loadTask?.cancel()
         #if canImport(WebKit)
         // fix10: preserve the pre-warm task when the same video is re-tapped after stop().

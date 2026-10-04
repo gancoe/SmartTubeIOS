@@ -242,6 +242,20 @@ public func filterHLSMasterManifest(
     maximumHeight: Int,
     requiredVideoCodec: String
 ) -> String {
+    filterHLSVariants(
+        manifest,
+        maximumHeight: maximumHeight,
+        allowedVideoCodecs: [requiredVideoCodec]
+    )
+}
+
+/// Produces an AVFoundation-safe HLS master while preserving separate audio renditions.
+/// Only video codec tokens from the `CODECS` attribute are considered eligible.
+public func filterHLSVariants(
+    _ manifest: String,
+    maximumHeight: Int,
+    allowedVideoCodecs: [String]
+) -> String {
     let lines = manifest.components(separatedBy: .newlines)
     var output: [String] = []
     var shouldDropNextURI = false
@@ -269,7 +283,10 @@ public func filterHLSMasterManifest(
                 .map { String(trimmed[$0]) }
                 .flatMap { $0.components(separatedBy: "x").last }
                 .flatMap(Int.init)
-            let codecMatches = trimmed.localizedCaseInsensitiveContains(requiredVideoCodec)
+            let codecMatches = hlsVideoCodecMatches(
+                trimmed,
+                allowedVideoCodecs: allowedVideoCodecs
+            )
             guard codecMatches, let height, height <= maximumHeight else {
                 shouldDropNextURI = true
                 continue
@@ -296,6 +313,26 @@ public func filterHLSMasterManifest(
     }
 
     return output.joined(separator: "\n")
+}
+
+private func hlsVideoCodecMatches(_ line: String, allowedVideoCodecs: [String]) -> Bool {
+    let allowedPrefixes =
+        allowedVideoCodecs
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .filter { !$0.isEmpty }
+    guard !allowedPrefixes.isEmpty,
+        let codecs = extractQuotedHLSAttribute("CODECS", from: line)
+    else {
+        return false
+    }
+
+    return
+        codecs
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .contains { token in
+            allowedPrefixes.contains { token.hasPrefix($0) }
+        }
 }
 
 private func hlsMediaLineIsOriginalAudio(_ line: String) -> Bool {

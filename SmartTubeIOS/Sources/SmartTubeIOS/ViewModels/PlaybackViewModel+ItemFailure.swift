@@ -47,21 +47,94 @@ extension PlaybackViewModel {
         failurePlayerObserver = nil
         failureItemObserver?.invalidate()
         failureItemObserver = nil
+        nativeVP9ReadyItem = nil
+        nativeVP9RecoveryTask?.cancel()
+        nativeVP9RecoveryTask = nil
     }
 
     private func observeItemFailure(_ item: AVPlayerItem?, observationID: UInt) {
         failureItemObserver?.invalidate()
         failureItemObserver = nil
+        nativeVP9ReadyItem = nil
         guard let item else { return }
         let videoID = currentVideo?.id
         failureItemObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            guard item.status == .failed, Self.isMediaServicesReset(item.error) else { return }
+            let status = item.status
             Task { @MainActor [weak self, weak item] in
                 guard let self, let item, self.failureObservationID == observationID,
                     self.player.currentItem === item, self.currentVideo?.id == videoID
                 else { return }
-                self.handleMediaServicesReset()
+                switch status {
+                case .readyToPlay:
+                    if self.qualityManager.allowsNativeVP9 {
+                        self.nativeVP9ReadyItem = item
+                    }
+                case .failed:
+                    self.handleNativeVP9Failure(item, error: item.error)
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
             }
+        }
+    }
+
+    private func handleNativeVP9Failure(_ item: AVPlayerItem, error: Error?) {
+        guard nativeVP9ReadyItem === item, qualityManager.allowsNativeVP9 else {
+            if Self.isMediaServicesReset(error) {
+                handleMediaServicesReset()
+            }
+            return
+        }
+        guard !isLoading,
+            !nativeVP9Rejected,
+            nativeVP9RecoveryTask == nil,
+            let video = currentVideo
+        else { return }
+
+        let position = pendingSeekTarget ?? currentTime
+        savedPositionToRestore = position.isFinite ? max(0, position) : 0
+        invalidatePendingSeek()
+        nativeVP9Rejected = true
+        isPlaying = false
+        isLoading = true
+        player.pause()
+        cancelPlaybackWorkAfterFailure()
+
+        let recoveryPlayer: AVPlayer
+        if Self.isMediaServicesReset(error) {
+            // A native-ready media-services reset needs the same player rebuild as the
+            // manual retry path, but the H.264 recovery must continue automatically.
+            rebuildPlayerAfterMediaReset()
+            recoveryPlayer = player
+        } else {
+            // Release the failed item before the recovery operation so a late callback
+            // from it cannot be mistaken for the replacement stream.
+            cancelFailureObserver()
+            player.replaceCurrentItem(with: nil)
+            setupFailureObserver()
+            setupEndObserver()
+            recoveryPlayer = player
+        }
+        let recoveryObservationID = failureObservationID
+        let recoveryOperation = nativeVP9RecoveryOperation
+        nativeVP9RecoveryTask = Task { @MainActor [weak self] in
+            guard let self,
+                !Task.isCancelled,
+                self.failureObservationID == recoveryObservationID,
+                self.player === recoveryPlayer,
+                self.currentVideo?.id == video.id,
+                self.nativeVP9Rejected
+            else { return }
+
+            if let recoveryOperation {
+                await recoveryOperation(video, error)
+            } else {
+                await self.exhaustiveRetry(video: video, originalError: error)
+            }
+            guard !Task.isCancelled, self.currentVideo?.id == video.id else { return }
+            self.nativeVP9RecoveryTask = nil
         }
     }
 
@@ -92,6 +165,8 @@ extension PlaybackViewModel {
         stallObserverTask = nil
         durationObserverTask?.cancel()
         durationObserverTask = nil
+        nativeVP9RecoveryTask?.cancel()
+        nativeVP9RecoveryTask = nil
         qualityManager.cancel()
     }
 

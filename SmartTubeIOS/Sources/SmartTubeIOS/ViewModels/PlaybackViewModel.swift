@@ -295,6 +295,14 @@ public final class PlaybackViewModel {
     @ObservationIgnored nonisolated(unsafe) var failurePlayerObserver: NSKeyValueObservation?
     @ObservationIgnored nonisolated(unsafe) var failureItemObserver: NSKeyValueObservation?
     var failureObservationID: UInt = 0
+    /// Monotonic per-view-model rejection of native VP9 after a decode/stall failure.
+    /// Fallback resolution reads this before offering the native 4K route again.
+    var nativeVP9Rejected: Bool = false
+    @ObservationIgnored weak var nativeVP9ReadyItem: AVPlayerItem?
+    @ObservationIgnored var nativeVP9RecoveryTask: Task<Void, Never>?
+    /// Test and integration seam for the one-shot H.264 recovery after native VP9 fails.
+    /// When nil, the default is the existing exhaustive fallback chain.
+    @ObservationIgnored var nativeVP9RecoveryOperation: (@MainActor (Video, Error?) async -> Void)?
     /// Monotonically increasing identity for the latest seek request.
     var seekID: UInt = 0
     @ObservationIgnored nonisolated(unsafe) var timeObserver: Any?
@@ -559,6 +567,7 @@ public final class PlaybackViewModel {
 
     deinit {
         autoplayCountdownTask?.cancel()
+        nativeVP9RecoveryTask?.cancel()
         #if os(tvOS)
         let token = idleTimerOwnerToken
         // `deinit` is nonisolated. Hop back to the main actor and perform the
@@ -616,6 +625,9 @@ extension PlaybackViewModel: QualityEventHandler {
     func qualityItemDidBecomeReady(_ item: AVPlayerItem, seekTo time: TimeInterval) {
         // Clear the quality-change freeze so the time observer resumes.
         isQualityChangePending = false
+        if qualityManager.allowsNativeVP9 {
+            nativeVP9ReadyItem = item
+        }
         // currentTime was preserved during the transition (time observer suspended).
         // If the user seeked while the new item was loading, currentTime reflects
         // their intent (set in seek(to:) completion handler); otherwise it holds

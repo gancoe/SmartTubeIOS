@@ -13,58 +13,6 @@ private typealias VideoFormat = SmartTubeIOSCore.VideoFormat
 
 private let playerLog = CrashlyticsLogger(category: "Player")
 
-/// Client-specific HLS settings used for both initial playback and quality changes.
-struct HLSPlaybackPolicy: Equatable, Sendable {
-    let userAgent: String
-    let maximumHeight: Int?
-    let filtersMasterManifest: Bool
-    let requiresH264: Bool
-
-    static func resolve(label: String, isHLS: Bool) -> Self {
-        guard isHLS else {
-            return Self(
-                userAgent: "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)",
-                maximumHeight: nil,
-                filtersMasterManifest: false,
-                requiresH264: false
-            )
-        }
-        if label.localizedCaseInsensitiveContains("visionos") {
-            return Self(
-                userAgent: InnerTubeClients.VisionOS.userAgent,
-                maximumHeight: InnerTubeClients.VisionOS.maximumHLSHeight,
-                filtersMasterManifest: true,
-                requiresH264: true
-            )
-        }
-        if label.contains("WebSafari") {
-            return Self(
-                userAgent: InnerTubeClients.WebSafari.userAgent,
-                maximumHeight: nil,
-                filtersMasterManifest: false,
-                requiresH264: false
-            )
-        }
-        return Self(
-            userAgent: "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)",
-            maximumHeight: nil,
-            filtersMasterManifest: false,
-            requiresH264: false
-        )
-    }
-
-    func cappedHeight(requested: Int?) -> Int? {
-        guard let maximumHeight else { return requested }
-        return min(requested ?? maximumHeight, maximumHeight)
-    }
-
-    func allowsFormat(height: Int, mimeType: String) -> Bool {
-        if let maximumHeight, height > maximumHeight { return false }
-        if requiresH264, !mimeType.contains("avc1") { return false }
-        return true
-    }
-}
-
 // MARK: - Exhaustive Playback Retry
 
 extension PlaybackViewModel {
@@ -96,22 +44,24 @@ extension PlaybackViewModel {
             return
         }
         #if os(tvOS)
-        // tvOS cannot use the WKWebView/BotGuard recovery available on iOS/macOS.
-        // Current yt-dlp uses VISIONOS as its primary JS-less Apple client. After
-        // seeding a normal YouTube webpage session it returns token-free HLS with
-        // H.264 through 1080p, which AVPlayer handles natively on Apple TV.
-        do {
-            let visionInfo = try await api.fetchPlayerInfoVisionOS(videoId: video.id)
-            if await tryAllStreams(
-                video: video,
-                info: visionInfo,
-                label: "VisionOS",
-                skipMuxed: true
-            ) {
-                playerLog.notice("[VisionOS] ✅ native HLS playback — exhaustiveRetry done")
-                return
+        let source = VisionOSNativeStreamSource(
+            supportsNativeVP9: VisionOSNativeStreamSource.allowsNativeVP9Attempt(
+                requestedQuality: qualityManager.effectiveQuality,
+                hardwareSupported: NativeVideoDecoderCapabilities.current.vp9HardwareDecodeSupported,
+                supplementalRequested: NativeVideoDecoderCapabilities.current.didRequestSupplementalVP9,
+                rejected: nativeVP9Rejected
+            ),
+            fetch: { try await self.api.fetchPlayerInfoVisionOS(videoId: video.id) },
+            attemptHLS: { info, label in
+                guard let url = info.hlsURL else { return false }
+                return await self.attemptURL(url, for: video, info: info, label: label)
+            },
+            attemptFallback: { info, label in
+                await self.tryAllStreams(video: video, info: info, label: label, skipMuxed: true)
             }
-            playerLog.notice("[VisionOS] HLS/adaptive playback failed — continuing legacy fallbacks")
+        )
+        do {
+            if try await source.resolve() { return }
         } catch {
             playerLog.notice("[VisionOS] player request failed: \(error) — continuing legacy fallbacks")
         }
@@ -1064,19 +1014,21 @@ extension PlaybackViewModel {
         if let hlsURL = info.hlsURL, url == hlsURL {
             let videoId = video.id
             let allVariantURLs: [Int: URL]
-            if hlsPolicy.filtersMasterManifest {
+            if hlsPolicy.filtersManifest {
+                let cacheKey = hlsPolicy.cacheKey(videoId: videoId)
                 let fetched = await qualityManager.fetchHLSVariantURLs(
-                    url: hlsURL, userAgent: hlsPolicy.userAgent
+                    url: hlsURL, userAgent: hlsPolicy.userAgent,
+                    maximumHeight: hlsPolicy.maximumHeight, allowedVideoCodecs: hlsPolicy.allowedVideoCodecs
                 )
                 if fetched.isEmpty,
-                    let cached = PlaybackQualityManager.cachedHLSVariants(for: videoId)
+                    let cached = PlaybackQualityManager.cachedHLSVariants(for: cacheKey)
                 {
                     allVariantURLs = cached
                 } else {
                     allVariantURLs = fetched
                 }
                 if !fetched.isEmpty {
-                    PlaybackQualityManager.cacheHLSVariants(fetched, for: videoId)
+                    PlaybackQualityManager.cacheHLSVariants(fetched, for: cacheKey)
                 }
             } else if let cached = PlaybackQualityManager.cachedHLSVariants(for: videoId) {
                 playerLog.notice("[\(label)] HLS: using cached manifest for \(videoId) variantCount=\(cached.count)")
@@ -1094,10 +1046,8 @@ extension PlaybackViewModel {
                 } ?? allVariantURLs
             playerLog.notice(
                 "[\(label)] HLS: hlsURL=yes variantCount=\(variantURLs.count) effectiveQuality=\(effectiveQuality)")
-            if hlsPolicy.requiresH264 {
-                availableFormats = availableFormats.filter { format in
-                    hlsPolicy.allowsFormat(height: format.height, mimeType: format.mimeType)
-                }
+            if hlsPolicy.allowedVideoCodecs != nil {
+                availableFormats = hlsPolicy.formatsForHLS(info.formats, variantHeights: Set(variantURLs.keys))
             }
             if !variantURLs.isEmpty {
                 hlsVariantURLs = variantURLs
@@ -1116,10 +1066,10 @@ extension PlaybackViewModel {
                     .flatMap { h in variantURLs.filter { $0.key <= h }.max(by: { $0.key < $1.key }) }
                     ?? variantURLs.max(by: { $0.key < $1.key })
                 if let chosen {
-                    if hlsPolicy.filtersMasterManifest {
+                    if hlsPolicy.filtersManifest {
                         effectiveURL = hlsURL
                         playerLog.notice(
-                            "[\(label)] HLS: using H.264-filtered master with \(chosen.key)p cap and audio renditions")
+                            "[\(label)] HLS: using codec-filtered master with \(chosen.key)p cap and audio renditions")
                     } else {
                         effectiveURL = chosen.value
                         playerLog.notice("[\(label)] HLS: selected variant \(chosen.key)p")
@@ -1225,7 +1175,7 @@ extension PlaybackViewModel {
             qualityManager.configureHLSPlayback(
                 userAgent: hlsPolicy.userAgent,
                 maximumHeight: hlsPolicy.maximumHeight,
-                requiredVideoCodec: hlsPolicy.requiresH264 ? "avc1" : nil
+                allowedVideoCodecs: hlsPolicy.allowedVideoCodecs
             )
             qualityManager.setSelectedFormatForCurrentPreference()
             applyHLSHints = true
@@ -1329,6 +1279,7 @@ extension PlaybackViewModel {
                 loadAudioTracks(from: item)
                 needsQuickStartup = false
                 isLoading = false
+                if label.contains("VisionOS/Native4K") { nativeVP9ReadyItem = item }
                 timeToPlayMs = Int(Date().timeIntervalSince(videoLoadStartedAt) * 1000)
                 lastSuccessfulStreamType = label
                 if timeToPlayMs > 4_000 {
