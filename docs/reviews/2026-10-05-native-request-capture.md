@@ -84,10 +84,10 @@ persistent bounds were corrected before this approval.
 
 Measured commands in this run:
 
-- Focused Swift diagnostics: 39 tests in 6 suites passed, including the actual
+- Focused Swift diagnostics: 42 tests in 6 suites passed, including the actual
   monitor cancellation test with blocked delivery, expiry, replacement, stale
   errors, duplicate attachment and persistent bounds. Log:
-  `tmp/native-metrics-client-tests.log`.
+  `tmp/native-metrics-client-tests-final.log`.
 - Receiver standard-library tests: 20 passed. Log:
   `tmp/native-metrics-receiver-final.log`.
 - Configuration tests: 5 passed.
@@ -98,7 +98,15 @@ Measured commands in this run:
   measured 148 violations. Length checks in the existing loading file differ
   after adding diagnostic lifecycle hooks. The baseline was not changed; this
   is not a green full-repository gate. Logs:
-  `tmp/native-metrics-ci.log`, `tmp/native-metrics-base-lint.log`.
+  `tmp/native-metrics-ci-final.log`, `tmp/native-metrics-base-lint.log`.
+
+Astra approved the final persistence change after read-only review. Production
+tvOS stores only capture UUID, start, deadline and state in `UserDefaults.standard`,
+Apple's persistent settings store. The injectable file backend remains for
+failure tests and other platforms. Isolated defaults suites verify reopening,
+ended captures and malformed state. Settings readback verifies acceptance,
+not synchronous disk durability. The earlier `de0bf22` IPA is superseded and
+must not be installed.
 
 The receiver now permits safe `resource_request_duration_seconds` even when
 transaction response metrics are absent. It still rejects that duration if the

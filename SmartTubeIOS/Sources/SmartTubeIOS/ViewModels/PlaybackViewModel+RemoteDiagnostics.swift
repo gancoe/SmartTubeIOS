@@ -6,13 +6,17 @@ extension PlaybackViewModel {
         guard let configuration = PlaybackDiagnosticsConfiguration(),
             let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         else { return }
-        guard let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        else { return }
+        let stateRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? cache
+        #if os(tvOS)
+        await monitorPlaybackDiagnostics(
+            configuration: configuration, cache: cache, stateRoot: stateRoot, defaults: .standard)
+        #else
         await monitorPlaybackDiagnostics(configuration: configuration, cache: cache, stateRoot: stateRoot)
+        #endif
     }
 
     func monitorPlaybackDiagnostics(
-        configuration: PlaybackDiagnosticsConfiguration, cache: URL, stateRoot: URL
+        configuration: PlaybackDiagnosticsConfiguration, cache: URL, stateRoot: URL, defaults: UserDefaults? = nil
     ) async {
         if playbackDiagnosticsReporter == nil {
             playbackDiagnosticsReporter = PlaybackDiagnosticsReporter(
@@ -27,7 +31,8 @@ extension PlaybackViewModel {
         if let captureID = configuration.captureID {
             playbackDiagnosticsCaptureSession = PlaybackDiagnosticsCaptureSession(
                 captureID: captureID,
-                stateURL: stateRoot.appendingPathComponent("PlaybackDiagnostics/capture-state.json"))
+                stateURL: stateRoot.appendingPathComponent("PlaybackDiagnostics/capture-state.json"), defaults: defaults
+            )
             installPlaybackDiagnosticsItemObserver(ownerToken: ownerToken)
             schedulePlaybackDiagnosticsExpiry(ownerToken: ownerToken)
         }

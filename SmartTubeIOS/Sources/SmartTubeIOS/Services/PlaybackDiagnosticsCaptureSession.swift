@@ -10,20 +10,23 @@ final class PlaybackDiagnosticsCaptureSession {
 
     private static let maximumDuration: TimeInterval = 30 * 60
     private static let recoveryDuration: TimeInterval = 60
+    static let defaultsKey = "PlaybackDiagnostics.captureState"
 
     let captureID: UUID
     private let stateURL: URL
+    private let defaults: UserDefaults?
     private(set) var startedAt: Date
     private(set) var endsAt: Date
     private(set) var state: State
 
-    init(captureID: UUID, stateURL: URL, now: Date = Date()) {
+    init(captureID: UUID, stateURL: URL, defaults: UserDefaults? = nil, now: Date = Date()) {
         self.captureID = captureID
         self.stateURL = stateURL
+        self.defaults = defaults
         startedAt = now
         endsAt = now
         state = .ended
-        if let values = Self.read(from: stateURL) {
+        if let values = read() {
             if let stored = values[captureID.uuidString.lowercased()] {
                 guard stored.start <= now, stored.end >= stored.start,
                     stored.end.timeIntervalSince(stored.start) <= Self.maximumDuration
@@ -81,19 +84,31 @@ final class PlaybackDiagnosticsCaptureSession {
         }
     }
 
-    private static func read(from url: URL) -> [String: Stored]? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        guard let data = try? Data(contentsOf: url),
-            let result = try? JSONDecoder().decode([String: Stored].self, from: data)
+    private func read() -> [String: Stored]? {
+        let data: Data
+        if let defaults {
+            guard let stored = defaults.object(forKey: Self.defaultsKey) else { return [:] }
+            guard let storedData = stored as? Data else { return nil }
+            data = storedData
+        } else {
+            guard FileManager.default.fileExists(atPath: stateURL.path) else { return [:] }
+            guard let storedData = try? Data(contentsOf: stateURL) else { return nil }
+            data = storedData
+        }
+        guard let result = try? JSONDecoder().decode([String: Stored].self, from: data)
         else { return nil }
         return result
     }
 
     @discardableResult
     private func persist() -> Bool {
-        guard var values = Self.read(from: stateURL) else { return false }
+        guard var values = read() else { return false }
         values[captureID.uuidString.lowercased()] = Stored(start: startedAt, end: endsAt, state: state)
         guard let data = try? JSONEncoder().encode(values) else { return false }
+        if let defaults {
+            defaults.set(data, forKey: Self.defaultsKey)
+            return defaults.data(forKey: Self.defaultsKey) == data
+        }
         do {
             try FileManager.default.createDirectory(
                 at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
