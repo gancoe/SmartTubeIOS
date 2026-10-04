@@ -701,6 +701,9 @@ extension PlayerView {
         .overlay(alignment: .topLeading) {
             titleAndBackButtonOverlay
         }
+        .task {
+            await vm.monitorPlaybackDiagnostics()
+        }
         .onAppear {
             swipeLog.notice("[PlayerView] onAppear id=\(video.id)")
             isVisible = true

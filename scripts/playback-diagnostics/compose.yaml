@@ -1,0 +1,25 @@
+services:
+  playback-diagnostics:
+    build: .
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --data-file
+      - /data/events.jsonl
+    environment:
+      DIAGNOSTICS_TOKEN_FILE: /run/secrets/diagnostics-token
+      PYTHONDONTWRITEBYTECODE: "1"
+    restart: unless-stopped
+    ports:
+      - "${DIAGNOSTICS_BIND_IP:-127.0.0.1}:8765:8765"
+    volumes:
+      - diagnostics-data:/data
+      - ./.secrets/diagnostics-token:/run/secrets/diagnostics-token:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  diagnostics-data:

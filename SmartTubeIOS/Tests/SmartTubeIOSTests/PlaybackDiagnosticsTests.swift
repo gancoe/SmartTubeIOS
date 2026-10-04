@@ -127,6 +127,107 @@ struct PlaybackDiagnosticsTests {
                 == "Details redacted")
     }
 
+    @Test("no-response timeout comments remain readable without allowing arbitrary error details")
+    func reportsSafeNoResponseComment() {
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("No response for media file in 9.9767s")
+                == "No response for media file in 9.9767s")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("No response for media file in 10s")
+                == "No response for media file in 10s")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary(
+                "No response for media file in 10s https://cdn.example/?sig=secret")
+                == "Details redacted")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("No response for media file in 10s\nCookie: secret")
+                == "Details redacted")
+    }
+
+    @Test("native HTTP errors retain only a canonical numeric status")
+    func reportsSafeHTTPStatus() {
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 401") == "HTTP 401")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("HTTP 401: https://cdn.example/?sig=secret\nCookie: secret")
+                == "HTTP 401")
+        #expect(PlaybackViewModel.errorLogCommentSummary("request failed: HTTP\t503 unavailable") == "HTTP 503")
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 4010 secret") == "Details redacted")
+        #expect(PlaybackViewModel.errorLogCommentSummary("HTTP 600 secret") == "Details redacted")
+        #expect(PlaybackViewModel.errorLogCommentSummary("secretHTTP 401") == "Details redacted")
+        var snapshot = StatsForNerdsSnapshot.empty
+        snapshot.errorLogComment = PlaybackViewModel.errorLogCommentSummary("HTTP 401: private URL")
+        let event = PlaybackViewModel.deliveryEvent(
+            snapshot, advertisedBitrate: nil, observedBitrate: nil, at: Date(timeIntervalSince1970: 1_000))
+        #expect(event.errorComment == "HTTP 401")
+    }
+
+    @Test("error URL summaries distinguish media hints from playlist and caption URLs without credentials")
+    func reportsSafeErrorResource() {
+        #expect(PlaybackViewModel.errorResourceSummary(nil) == "unknown")
+        #expect(PlaybackViewModel.errorResourceSummary("invalid resource") == "unknown")
+        #expect(
+            PlaybackViewModel.errorResourceSummary("https://cdn.example/playlist/index.m3u8?sig=secret")
+                == "playlist URL · HTTPS")
+        #expect(
+            PlaybackViewModel.errorResourceSummary("ytwebhls://cdn.example/index.m3u8?sig=secret")
+                == "playlist URL · playlist proxy")
+        #expect(
+            PlaybackViewModel.errorResourceSummary(
+                "https://cdn.example/mime/video%2Fwebm/itag/617/file/seg.ts?sig=secret")
+                == "video URL (MIME hint) · HTTPS · itag=617")
+        #expect(
+            PlaybackViewModel.errorResourceSummary(
+                "https://cdn.example/videoplayback?mime=audio%2Fmp4&itag=140&sig=secret")
+                == "audio URL (MIME hint) · HTTPS · itag=140")
+        #expect(
+            PlaybackViewModel.errorResourceSummary("https://cdn.example/playlist/index.m3u8/file/seg.ts?sig=secret")
+                == "media URL (track unknown) · HTTPS")
+        #expect(
+            PlaybackViewModel.errorResourceSummary("https://www.youtube.com/api/timedtext?sig=secret")
+                == "captions URL · HTTPS")
+        #expect(
+            PlaybackViewModel.errorResourceSummary("https://cdn.example/?mime=secret&itag=secret&sig=secret")
+                == "unknown URL · HTTPS")
+    }
+
+    @Test("remote events bind native values and sanitized errors without altering accelerated playback")
+    func recordsStructuredNativeValues() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        var snapshot = StatsForNerdsSnapshot.empty
+        snapshot.videoId = "THbBVhNwTFo"
+        snapshot.displayResolution = "256x144"
+        snapshot.playerRate = 2
+        snapshot.bufferAheadSeconds = 60
+        snapshot.itemStatus = "ready"
+        snapshot.playerTimeControlStatus = "playing"
+        snapshot.streamType = "VisionOS/Native4K/HLS"
+        snapshot.errorLog = "CoreMediaErrorDomain#-15628"
+        snapshot.errorLogDate = now.addingTimeInterval(-11)
+        snapshot.errorLogEventCount = 2
+        snapshot.errorLogComment = "Details redacted"
+        snapshot.errorLogResource = PlaybackViewModel.errorResourceSummary(
+            "https://cdn.example/mime/video%2Fwebm/itag/617/file/seg.ts?sig=secret")
+        snapshot.downloadedBytes = 1_000
+        snapshot.accessLogEventCount = 3
+        let event = PlaybackViewModel.deliveryEvent(
+            snapshot, advertisedBitrate: 500_000, observedBitrate: 20_000_000, playbackPosition: 123, at: now)
+        #expect(event.videoID == "THbBVhNwTFo")
+        #expect(event.rate == 2)
+        #expect(event.playbackPositionSeconds == 123)
+        #expect(event.bufferMediaSeconds == 60)
+        #expect(event.bufferViewingSeconds == 30)
+        #expect(event.resolution == "256x144")
+        #expect(event.errorCode == -15628)
+        #expect(event.errorDomain == "CoreMediaErrorDomain")
+        #expect(event.errorTimestamp == now.addingTimeInterval(-11))
+        #expect(event.timestamp == now)
+        #expect(event.errorResource == "video URL (MIME hint) · HTTPS · itag=617")
+        #expect(event.advertisedBitrateBps == 500_000)
+        #expect(event.observedBitrateBps == 20_000_000)
+        #expect(event.downloadedBytes == 1_000)
+        #expect(event.accessEventCount == 3)
+    }
+
     @Test("error diagnostics retain only domain and code")
     func sanitizesErrorDiagnostics() {
         let item = ControlledAVPlayerItem()

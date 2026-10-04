@@ -134,7 +134,7 @@ extension PlaybackViewModel {
                 "viewingBuffer=\(viewingBuffer)s", "route=\(snapshot.streamType)",
                 "advertised=\(snapshot.advertisedBitrate)", "errors=\(snapshot.errorLogEventCount)",
                 "lastError=\(snapshot.errorLog)", "errorDate=\(errorDate)",
-                "comment=\(snapshot.errorLogComment)",
+                "comment=\(snapshot.errorLogComment)", "resource=\(snapshot.errorLogResource)",
             ].joined(separator: " ")
             deliveryLog.notice("[hls-delivery] \(details, privacy: .public)")
         }
@@ -165,6 +165,7 @@ extension PlaybackViewModel {
         snapshot.errorLogDate = errorEvent?.date
         snapshot.errorLogEventCount = errorLog?.events.count ?? 0
         snapshot.errorLogComment = Self.errorLogCommentSummary(errorEvent?.errorComment)
+        snapshot.errorLogResource = Self.errorResourceSummary(errorEvent?.uri)
         snapshot.peakBitrateLimit = item.preferredPeakBitRate
         recordDeliveryChange(snapshot, previous: statsSnapshot)
         return snapshot
@@ -211,7 +212,12 @@ extension PlaybackViewModel {
 
     static func errorLogCommentSummary(_ comment: String?) -> String {
         guard let comment, !comment.isEmpty else { return "—" }
-        let pattern = #"^Media (file|playlist) not received in [0-9]+(\.[0-9]+)?s$"#
+        if let range = comment.range(
+            of: #"(?<![A-Za-z0-9])HTTP[ \t]+[1-5][0-9]{2}(?![0-9])"#, options: .regularExpression)
+        {
+            return "HTTP \(comment[range].suffix(3))"
+        }
+        let pattern = #"^(Media (file|playlist) not received|No response for media file) in [0-9]+(\.[0-9]+)?s$"#
         guard comment.range(of: pattern, options: .regularExpression) == comment.startIndex..<comment.endIndex else {
             return "Details redacted"
         }
@@ -221,6 +227,51 @@ extension PlaybackViewModel {
     static func deliveryBitrateLabel(_ bitrate: Double?) -> String {
         guard let bitrate, bitrate.isFinite, bitrate > 0, bitrate < Double(Int.max) else { return "—" }
         return formatBitrate(Int(bitrate))
+    }
+
+    static func errorResourceSummary(_ uri: String?) -> String {
+        guard let uri, let components = URLComponents(string: uri),
+            let url = components.url, let scheme = components.scheme,
+            components.host?.isEmpty == false
+        else { return "unknown" }
+        let transport: String
+        switch scheme.lowercased() {
+        case "https": transport = "HTTPS"
+        case "http": transport = "HTTP"
+        case "ytwebhls": transport = "playlist proxy"
+        default: return "unknown"
+        }
+        let pathFields = components.percentEncodedPath.split(separator: "/").map {
+            String($0).removingPercentEncoding ?? String($0)
+        }
+        func values(for name: String) -> [String] {
+            let queryValues = (components.queryItems ?? []).filter { $0.name == name }.compactMap(\.value)
+            let pathValues = pathFields.indices.dropLast().compactMap { index in
+                pathFields[index] == name ? pathFields[index + 1] : nil
+            }
+            return queryValues + pathValues
+        }
+        let mimeValues = Set(values(for: "mime"))
+        let mime = mimeValues.count == 1 ? mimeValues.first : nil
+        let category: String
+        if url.pathExtension.lowercased() == "m3u8" {
+            category = "playlist URL"
+        } else if url.pathExtension.lowercased() == "vtt" || components.path == "/api/timedtext" {
+            category = "captions URL"
+        } else if let mime, ["audio/mp4", "audio/webm", "audio/aac", "audio/mpeg"].contains(mime) {
+            category = "audio URL (MIME hint)"
+        } else if let mime, ["video/mp4", "video/webm"].contains(mime) {
+            category = "video URL (MIME hint)"
+        } else if ["ts", "m4s", "mp4", "webm", "aac"].contains(url.pathExtension.lowercased()) {
+            category = "media URL (track unknown)"
+        } else {
+            category = "unknown URL"
+        }
+        let itagValues = Set(values(for: "itag"))
+        if itagValues.count == 1, let value = itagValues.first, let itag = Int(value), itag > 0 {
+            return "\(category) · \(transport) · itag=\(itag)"
+        }
+        return "\(category) · \(transport)"
     }
 
     static func contiguousBufferAheadSeconds(for item: AVPlayerItem) -> Double? {
@@ -314,6 +365,7 @@ public struct StatsForNerdsSnapshot: Sendable {
     public var errorLogDate: Date?
     public var errorLogEventCount: Int = 0
     public var errorLogComment: String = "—"
+    public var errorLogResource: String = "unknown"
     public var advertisedBitrate: String = "—"
     public var accessLogEventCount: Int = 0
     public var downloadedBytes: Int64?

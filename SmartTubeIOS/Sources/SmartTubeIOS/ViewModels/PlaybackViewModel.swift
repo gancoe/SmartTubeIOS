@@ -214,6 +214,8 @@ public final class PlaybackViewModel {
     public func dislike() { likeDislike.dislike(videoId: currentVideo?.id) }
     public internal(set) var statsForNerdsVisible: Bool = false
     public internal(set) var statsSnapshot: StatsForNerdsSnapshot = .empty
+    @ObservationIgnored var playbackDiagnosticsReporter: PlaybackDiagnosticsReporter?
+    @ObservationIgnored var playbackDiagnosticsSampler = PlaybackDiagnosticsSampler()
     /// End-screen cards to overlay during the final seconds of the video.
     public internal(set) var endCards: [EndCard] = []
     /// When `true`, the player loads only the audio-only adaptive stream and displays
