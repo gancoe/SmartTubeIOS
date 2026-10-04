@@ -59,8 +59,28 @@ public final class PlaybackViewModel {
     /// Set to `true` at the start of each `load()` and cleared on the first
     /// `isPlaying = true` of that load cycle so the check fires exactly once.
     var pendingWrongVideoCheck: Bool = false
+    /// Token for the global tvOS idle-timer lease. A token remains comparable
+    /// during deinitialisation even after a weak owner reference has gone nil.
+    let idleTimerOwnerToken = UUID()
+    /// The automatic lease follows tvOS playback. Tests can enable it on other
+    /// platforms to exercise replacement-owner behaviour without UIKit.
+    @ObservationIgnored var idleTimerLeaseEnabled: Bool = {
+        #if os(tvOS)
+        true
+        #else
+        false
+        #endif
+    }()
+    @ObservationIgnored var idleTimerSetter: @MainActor (Bool) -> Void = { disabled in
+        #if canImport(UIKit)
+        UIApplication.shared.isIdleTimerDisabled = disabled
+        #else
+        _ = disabled
+        #endif
+    }
     public internal(set) var isPlaying: Bool = false {
         didSet {
+            updateIdleTimerForPlayback()
             guard isPlaying, !oldValue else { return }
             // fix13: Cross-process Darwin notification for regression-test timing.
             // XCTDarwinNotificationExpectation in WKHLSReplayRegressionUITests receives
@@ -177,6 +197,10 @@ public final class PlaybackViewModel {
         }
     }
     public var controlsVisible: Bool = false
+    var controlsOverlayVisible = false
+    @ObservationIgnored var controlsHideSleep: @MainActor (Duration) async throws -> Void = {
+        try await Task.sleep(for: $0)
+    }
     /// True while the user is holding a long-press to temporarily boost speed to 2×.
     public internal(set) var isHoldingToSpeed: Bool = false
     /// True when the player is displaying in landscape orientation.
@@ -246,10 +270,27 @@ public final class PlaybackViewModel {
     var history: [Video] = []
     /// The video currently loaded (nil before first load).
     var currentVideo: Video? = nil
+    /// The recommendation waiting for the tvOS autoplay countdown.
+    public internal(set) var pendingAutoplayVideo: Video?
+    /// Seconds remaining before the pending recommendation loads.
+    public internal(set) var autoplayCountdown: Int?
+    @ObservationIgnored var autoplayCountdownEnabled: Bool = {
+        #if os(tvOS)
+        true
+        #else
+        false
+        #endif
+    }()
+    @ObservationIgnored var autoplayCountdownSleep: @MainActor (Duration) async throws -> Void = {
+        try await Task.sleep(for: $0)
+    }
+    @ObservationIgnored nonisolated(unsafe) var autoplayCountdownTask: Task<Void, Never>?
+    var autoplayCountdownID: UInt = 0
 
     // MARK: - AVPlayer
 
     public internal(set) var player: AVPlayer
+    static var activeIdleTimerOwnerToken: UUID?
     @ObservationIgnored var makeRecoveryPlayer: @MainActor () -> AVPlayer = { AVPlayer() }
     @ObservationIgnored nonisolated(unsafe) var failurePlayerObserver: NSKeyValueObservation?
     @ObservationIgnored nonisolated(unsafe) var failureItemObserver: NSKeyValueObservation?
@@ -260,6 +301,8 @@ public final class PlaybackViewModel {
     @ObservationIgnored nonisolated(unsafe) weak var timeObserverPlayer: AVPlayer?
     @ObservationIgnored nonisolated(unsafe) var audioSessionObserver: Any?
     @ObservationIgnored nonisolated(unsafe) var rateObserver: NSKeyValueObservation?
+    @ObservationIgnored nonisolated(unsafe) var endPlayerObserver: NSKeyValueObservation?
+    var endObservationID: UInt = 0
     /// True while the video is being routed to an external display via AirPlay.
     public internal(set) var isAirPlaying: Bool = false
     @ObservationIgnored nonisolated(unsafe) var airPlayObserver: NSKeyValueObservation?
@@ -386,6 +429,8 @@ public final class PlaybackViewModel {
     var seekDebounceTask: Task<Void, Never>?
     /// Tracks the in-flight loadAsync so it can be cancelled if load() is called again.
     var loadTask: Task<Void, Never>?
+    /// Test seam for load() callers that need to avoid media/network work.
+    @ObservationIgnored var loadVideoOperation: (@MainActor (Video) async -> Void)?
     /// Phase 2 background work: nextInfo, endCards, trackingURLs, neighbour prefetch.
     /// Cancelled at the start of every new load() and in stop().
     var phase2Task: Task<Void, Never>?
@@ -509,8 +554,18 @@ public final class PlaybackViewModel {
     }
 
     deinit {
+        autoplayCountdownTask?.cancel()
+        #if os(tvOS)
+        let token = idleTimerOwnerToken
+        // `deinit` is nonisolated. Hop back to the main actor and perform the
+        // ownership check and release atomically with any replacement player.
+        Task { @MainActor in
+            Self.releaseIdleTimerLease(for: token)
+        }
+        #endif
         if let obs = timeObserver { timeObserverPlayer?.removeTimeObserver(obs) }
         rateObserver?.invalidate()
+        endPlayerObserver?.invalidate()
         failurePlayerObserver?.invalidate()
         failureItemObserver?.invalidate()
         airPlayObserver?.invalidate()

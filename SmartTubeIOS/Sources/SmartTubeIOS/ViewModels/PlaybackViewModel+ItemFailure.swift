@@ -87,8 +87,7 @@ extension PlaybackViewModel {
         phase2Task = nil
         itemObserverTask?.cancel()
         itemObserverTask = nil
-        endObserverTask?.cancel()
-        endObserverTask = nil
+        cancelEndObserver()
         stallObserverTask?.cancel()
         stallObserverTask = nil
         durationObserverTask?.cancel()

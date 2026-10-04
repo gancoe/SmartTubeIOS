@@ -36,6 +36,7 @@ extension PlaybackViewModel {
             playerLog.notice("[load] already loading \(video.id) — ignoring duplicate call")
             return
         }
+        resetAutoplayCountdown()
         invalidatePendingSeek()
         savedPositionToRestore = nil
         CrashlyticsLogger.setVideoContext(id: video.id, title: video.title)
@@ -79,17 +80,7 @@ extension PlaybackViewModel {
             videoEnded = false
             error = nil
             wasPlayingBeforeSuspend = false
-            // Re-wire end-of-playback and stall observers on the still-alive item.
-            endObserverTask?.cancel()
-            endObserverTask = Task { [weak self, parkedItem] in
-                let notifications = NotificationCenter.default.notifications(
-                    named: AVPlayerItem.didPlayToEndTimeNotification, object: parkedItem
-                )
-                for await _ in notifications {
-                    guard let self, !Task.isCancelled else { return }
-                    self.handlePlaybackEnd()
-                }
-            }
+            // The current-item KVO observer in setupRateObserver re-binds end-of-playback.
             stallObserverTask?.cancel()
             stallObserverTask = Task { @MainActor [weak self, parkedItem] in
                 let notifications = NotificationCenter.default.notifications(
@@ -108,7 +99,7 @@ extension PlaybackViewModel {
                 playerLog.error("[fix12] AVAudioSession setActive failed: \(error.localizedDescription)")
             }
             setupRemoteCommandCenter()
-            UIApplication.shared.isIdleTimerDisabled = true
+            setPlaybackIdleTimerDisabled(true)
             #endif
             player.rate = Float(settings.playbackSpeed)
             isPlaying = true
@@ -204,6 +195,14 @@ extension PlaybackViewModel {
             }
         }
 
+        #if DEBUG && os(tvOS)
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") {
+            isLoading = false
+            duration = 240
+            return
+        }
+        #endif
+
         // Show the loading spinner synchronously — set before the Task starts so the
         // first frame of PlayerView already has isLoading=true. Without this, there is a
         // one-frame gap (one run-loop cycle) where the PlayerView renders with isLoading=false,
@@ -218,7 +217,13 @@ extension PlaybackViewModel {
             cancelControlsHide()
         }
         #endif
-        loadTask = Task { await loadAsync(video: video) }
+        loadTask = Task {
+            if let loadVideoOperation {
+                await loadVideoOperation(video)
+            } else {
+                await loadAsync(video: video)
+            }
+        }
 
         // Kick off a background prefetch for the next video in the queue
         // so its PlayerInfo is warm in VideoPreloadCache before it is needed.
@@ -238,6 +243,7 @@ extension PlaybackViewModel {
     /// Resets the retry guard and reloads the current video from scratch.
     public func retryLoad() {
         guard let video = currentVideo else { return }
+        resetAutoplayCountdown()
         prepareRetryAfterMediaReset()
         error = nil
         retryAttempts = 0
@@ -278,6 +284,7 @@ extension PlaybackViewModel {
     /// Pauses playback when the user has disabled background audio.
     public func handleBackground() {
         guard !settings.backgroundPlaybackEnabled else { return }
+        resetAutoplayCountdown()
         guard isPlaying else { return }
         player.pause()
         // isPlaying is synced to false by the rate KVO observer.
@@ -291,6 +298,7 @@ extension PlaybackViewModel {
         playerLog.notice(
             "[suspend] suspend() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s"
         )
+        resetAutoplayCountdown()
         if settings.historyState == .enabled, duration > 0 {
             let pos = self.currentTime
             let dur = self.duration
@@ -321,6 +329,7 @@ extension PlaybackViewModel {
         rateObserver?.invalidate()
         rateObserver = nil
         cancelFailureObserver()
+        cancelEndObserver()
         #if canImport(WebKit)
         wkHLSEarlyTask?.cancel()
         wkHLSEarlyTask = nil
@@ -328,7 +337,7 @@ extension PlaybackViewModel {
         #endif
         isLoading = false
         #if canImport(UIKit)
-        UIApplication.shared.isIdleTimerDisabled = false
+        setPlaybackIdleTimerDisabled(false)
         updateNowPlayingPlayback()
         // Deregister from the global command center so a suspended VM never
         // handles lock screen Play while another VM is the active player.
@@ -364,7 +373,7 @@ extension PlaybackViewModel {
         isPlaying = true
         showControls()
         #if canImport(UIKit)
-        UIApplication.shared.isIdleTimerDisabled = true
+        setPlaybackIdleTimerDisabled(true)
         updateNowPlayingPlayback()
         #endif
     }
@@ -492,17 +501,6 @@ extension PlaybackViewModel {
                     }
                 }
                 player.replaceCurrentItem(with: item)
-                endObserverTask?.cancel()
-                endObserverTask = Task { [weak self] in
-                    let notifications = NotificationCenter.default.notifications(
-                        named: AVPlayerItem.didPlayToEndTimeNotification,
-                        object: item
-                    )
-                    for await _ in notifications {
-                        guard let self, !Task.isCancelled else { return }
-                        self.handlePlaybackEnd()
-                    }
-                }
                 stallObserverTask?.cancel()
                 stallObserverTask = Task { @MainActor [weak self] in
                     let notifications = NotificationCenter.default.notifications(
@@ -577,7 +575,7 @@ extension PlaybackViewModel {
                 relatedVideos = []
                 hasNext = false
                 #if canImport(UIKit)
-                UIApplication.shared.isIdleTimerDisabled = true
+                setPlaybackIdleTimerDisabled(true)
                 updateNowPlayingInfo()
                 #endif
                 playerLog.notice("[loadAsync] local-file fast path: playing \(localURL.lastPathComponent)")
@@ -997,19 +995,6 @@ extension PlaybackViewModel {
                 }
             }
 
-            // Observe end-of-item using NotificationCenter async sequence
-            endObserverTask?.cancel()
-            endObserverTask = Task { [weak self] in
-                let notifications = NotificationCenter.default.notifications(
-                    named: AVPlayerItem.didPlayToEndTimeNotification,
-                    object: item
-                )
-                for await _ in notifications {
-                    guard let self, !Task.isCancelled else { return }
-                    self.handlePlaybackEnd()
-                }
-            }
-
             // Observe playback stalls and record them as Crashlytics non-fatals (bug #193).
             stallObserverTask?.cancel()
             stallObserverTask = Task { @MainActor [weak self] in
@@ -1098,7 +1083,7 @@ extension PlaybackViewModel {
                 "[loadAsync] rate set — player.rate=\(self.player.rate) timeControlStatus=\(self.player.timeControlStatus.rawValue)"
             )
             #if canImport(UIKit)
-            UIApplication.shared.isIdleTimerDisabled = true
+            setPlaybackIdleTimerDisabled(true)
             updateNowPlayingInfo()
             #endif
             // Only reschedule the auto-hide timer when controls are already visible.
@@ -1179,6 +1164,7 @@ extension PlaybackViewModel {
         playerLog.notice(
             "[stop] stop() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s isLoading=\(self.isLoading)"
         )
+        resetAutoplayCountdown()
         invalidatePendingSeek()
         cancelFailureObserver()
         savedPositionToRestore = nil
@@ -1258,8 +1244,7 @@ extension PlaybackViewModel {
         }
         itemObserverTask?.cancel()
         itemObserverTask = nil
-        endObserverTask?.cancel()
-        endObserverTask = nil
+        cancelEndObserver()
         stallObserverTask?.cancel()
         stallObserverTask = nil
         durationObserverTask?.cancel()
@@ -1272,7 +1257,7 @@ extension PlaybackViewModel {
         rateObserver?.invalidate()
         rateObserver = nil
         #if canImport(UIKit)
-        UIApplication.shared.isIdleTimerDisabled = false
+        setPlaybackIdleTimerDisabled(false)
         clearNowPlayingInfo()
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.removeTarget(nil)

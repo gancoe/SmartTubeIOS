@@ -4,6 +4,10 @@ import os
 
 private let playerLog = CrashlyticsLogger(category: "Player")
 
+enum PlaybackTuning {
+    static let autoplayCountdownSeconds = 5
+}
+
 // MARK: - Queue, History & Chapter Navigation
 
 extension PlaybackViewModel {
@@ -113,9 +117,12 @@ extension PlaybackViewModel {
     }
 
     public func handlePlaybackEnd() {
+        resetAutoplayCountdown()
+        isPlaying = false
         if settings.loopEnabled {
             player.seek(to: .zero)
             player.rate = Float(settings.playbackSpeed)
+            isPlaying = true
             return
         }
         if let idx = currentVideo?.playlistIndex,
@@ -158,6 +165,7 @@ extension PlaybackViewModel {
     private func autoplayFromRecommendations() {
         if settings.shuffleEnabled, !relatedVideos.isEmpty {
             let pick = relatedVideos[Int.random(in: 0..<relatedVideos.count)]
+            if scheduleAutoplayCountdown(for: pick) { return }
             playerLog.notice("Shuffle: loading id=\(pick.id)")
             CrashlyticsLogger.setIntendedVideo(id: pick.id, title: pick.title)
             load(video: pick)
@@ -167,8 +175,62 @@ extension PlaybackViewModel {
             videoEnded = true
             return
         }
+        if scheduleAutoplayCountdown(for: next) { return }
         playerLog.notice("Autoplay: loading next video id=\(next.id)")
         CrashlyticsLogger.setIntendedVideo(id: next.id, title: next.title)
         load(video: next)
+    }
+
+    private func scheduleAutoplayCountdown(for video: Video) -> Bool {
+        guard autoplayCountdownEnabled else { return false }
+        autoplayCountdownID &+= 1
+        let countdownID = autoplayCountdownID
+        autoplayCountdownTask?.cancel()
+        pendingAutoplayVideo = video
+        autoplayCountdown = PlaybackTuning.autoplayCountdownSeconds
+        videoEnded = false
+        autoplayCountdownTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for remaining in stride(from: PlaybackTuning.autoplayCountdownSeconds, through: 1, by: -1) {
+                guard self.autoplayCountdownID == countdownID,
+                    self.pendingAutoplayVideo?.id == video.id
+                else { return }
+                self.autoplayCountdown = remaining
+                do {
+                    try await self.autoplayCountdownSleep(.seconds(1))
+                } catch {
+                    return
+                }
+            }
+            guard self.autoplayCountdownID == countdownID,
+                self.pendingAutoplayVideo?.id == video.id
+            else { return }
+            self.pendingAutoplayVideo = nil
+            self.autoplayCountdown = nil
+            self.autoplayCountdownTask = nil
+            self.load(video: video)
+        }
+        return true
+    }
+
+    func resetAutoplayCountdown() {
+        autoplayCountdownID &+= 1
+        autoplayCountdownTask?.cancel()
+        autoplayCountdownTask = nil
+        pendingAutoplayVideo = nil
+        autoplayCountdown = nil
+    }
+
+    public func playAutoplayNow() {
+        guard let video = pendingAutoplayVideo else { return }
+        resetAutoplayCountdown()
+        videoEnded = false
+        load(video: video)
+    }
+
+    public func cancelAutoplay() {
+        guard pendingAutoplayVideo != nil else { return }
+        resetAutoplayCountdown()
+        videoEnded = true
     }
 }

@@ -47,7 +47,7 @@ struct SmartTubeTVApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            rootContent
                 .environment(authService)
                 .environment(browseViewModel)
                 .environment(settingsStore)
@@ -69,5 +69,22 @@ struct SmartTubeTVApp: App {
                     browseViewModel.updateHistoryEnabled(newState == .enabled)
                 }
         }
+    }
+
+    @ViewBuilder private var rootContent: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui"),
+            let argument = ProcessInfo.processInfo.arguments.first(where: {
+                $0.hasPrefix("--uitesting-deeplink-video=")
+            })
+        {
+            let id = String(argument.dropFirst("--uitesting-deeplink-video=".count))
+            PlayerView(video: Video(id: id, title: id, channelTitle: "Test Channel"), api: api)
+        } else {
+            RootView()
+        }
+        #else
+        RootView()
+        #endif
     }
 }

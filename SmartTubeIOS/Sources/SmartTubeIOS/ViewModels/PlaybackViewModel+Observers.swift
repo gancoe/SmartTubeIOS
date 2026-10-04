@@ -45,6 +45,7 @@ extension PlaybackViewModel {
 
     func setupRateObserver() {
         setupFailureObserver()
+        setupEndObserver()
         // KVO on player.rate so isPlaying stays in sync when the system externally
         // pauses the player (e.g. headphones removed, audio session interruption ends
         // without shouldResume). Without this, isPlaying stays true while the player
@@ -132,6 +133,44 @@ extension PlaybackViewModel {
                 }
             }
         }
+    }
+
+    func setupEndObserver() {
+        guard endPlayerObserver == nil else { return }
+        let observationID = endObservationID
+        endPlayerObserver = player.observe(\.currentItem, options: [.initial, .new]) { [weak self] source, _ in
+            let item = source.currentItem
+            Task { @MainActor [weak self, weak source, weak item] in
+                guard let self, let source, self.player === source, self.player.currentItem === item,
+                    self.endObservationID == observationID
+                else { return }
+                self.endObserverTask?.cancel()
+                guard let item else {
+                    self.endObserverTask = nil
+                    return
+                }
+                self.endObserverTask = Task { @MainActor [weak self, weak item] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: AVPlayerItem.didPlayToEndTimeNotification,
+                        object: item
+                    )
+                    for await _ in notifications {
+                        guard let self, !Task.isCancelled, self.player.currentItem === item,
+                            self.endObservationID == observationID
+                        else { return }
+                        self.handlePlaybackEnd()
+                    }
+                }
+            }
+        }
+    }
+
+    func cancelEndObserver() {
+        endObservationID &+= 1
+        endObserverTask?.cancel()
+        endObserverTask = nil
+        endPlayerObserver?.invalidate()
+        endPlayerObserver = nil
     }
 
     #if canImport(UIKit)

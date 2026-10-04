@@ -44,11 +44,11 @@ extension PlayerView {
             .buttonStyle(.plain)
             .focusable(false)
             #endif
-            Text(vm.playerInfo?.video.title ?? video.title)
+            Text(vm.currentVideo?.title ?? video.title)
                 .font(.caption)
                 .opacity(0)  // visually invisible (including emoji), accessible
                 .accessibilityIdentifier("player.titleLabel")
-                .accessibilityLabel(vm.playerInfo?.video.title ?? video.title)
+                .accessibilityLabel(vm.currentVideo?.title ?? video.title)
                 // macOS AX prunes opacity-0 elements by default — force the element
                 // into the accessibility tree so XCUITest can always read it.
                 .accessibilityHidden(false)
@@ -316,6 +316,39 @@ extension PlayerView {
 
                 // Picker / sheet overlays — see PlayerView+Overlays.swift
                 overlayStack
+                #if os(tvOS)
+                if let next = vm.pendingAutoplayVideo {
+                    TVAutoplayOverlay(
+                        video: next,
+                        seconds: vm.autoplayCountdown ?? 0,
+                        onPlay: vm.playAutoplayNow,
+                        onCancel: vm.cancelAutoplay,
+                        onBrowse: {
+                            vm.cancelAutoplay()
+                            vm.hideControls()
+                            showRecommendations = true
+                        }
+                    )
+                }
+                if showRecommendations {
+                    TVRecommendationsPanel(
+                        videos: vm.relatedVideos,
+                        onSelect: { selected in
+                            showRecommendations = false
+                            vm.hideControls()
+                            highlightedControl = nil
+                            vm.load(video: selected)
+                        },
+                        onDismiss: {
+                            showRecommendations = false
+                            vm.hideControls()
+                            highlightedControl = nil
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.easeOut(duration: 0.2), value: showRecommendations)
+                }
+                #endif
             }
             .offset(x: slideOffset)
         }
@@ -357,6 +390,15 @@ extension PlayerView {
                         "[tv] onMoveCommand dir=\(String(describing: direction)) isTransitioning=\(isTransitioning) highlighted=\(String(describing: highlightedControl))"
                     )
                     guard !isTransitioning else { return }
+                    if direction == .down,
+                        highlightedControl == nil
+                            || highlightedControl.map({ !$0.isCenterRow && !$0.isTopRow }) == true
+                    {
+                        highlightedControl = nil
+                        vm.hideControls()
+                        showRecommendations = true
+                        return
+                    }
                     if let current = highlightedControl {
                         // Controls-nav mode: move the highlight between buttons.
                         highlightedControl = tvNextControl(from: current, direction: direction)
@@ -405,6 +447,16 @@ extension PlayerView {
                     "[tv] onExitCommand — showMoreMenu=\(showMoreMenu) showQuality=\(showQualityPicker) showSpeed=\(showSpeedPicker) showSleep=\(showSleepTimerPicker) showCaption=\(showCaptionPicker) showAudio=\(showAudioTrackPicker) showDesc=\(showDescriptionSheet) showComments=\(showCommentsSheet) highlighted=\(String(describing: highlightedControl)) controlsVisible=\(vm.controlsVisible)"
                 )
                 // Dismiss any open overlay first — Menu/Back is the tvOS dismiss convention.
+                if vm.pendingAutoplayVideo != nil {
+                    vm.cancelAutoplay()
+                    return
+                }
+                if showRecommendations {
+                    showRecommendations = false
+                    vm.hideControls()
+                    highlightedControl = nil
+                    return
+                }
                 if showMoreMenu {
                     showMoreMenu = false
                     return
@@ -437,11 +489,9 @@ extension PlayerView {
                     showCommentsSheet = false
                     return
                 }
-                if highlightedControl != nil {
-                    // Esc/Menu from nav mode → exit nav mode, controls stay until timer.
+                if highlightedControl != nil || vm.controlsVisible {
                     highlightedControl = nil
-                } else if vm.controlsVisible {
-                    vm.toggleControls()
+                    vm.hideControls()
                 } else {
                     vm.stop()
                     dismiss()
@@ -570,11 +620,23 @@ extension PlayerView {
                 if overlayVisible {
                     // Pause the controls auto-hide timer so transport controls stay
                     // visible behind the overlay while it is open.
-                    vm.cancelControlsHide()
+                    vm.controlsOverlayVisibilityChanged(true)
+                    playerFocused = false
                 } else {
                     // Overlay dismissed — reclaim focus and clear nav state.
                     highlightedControl = nil
                     playerFocused = true
+                    vm.controlsOverlayVisibilityChanged(false)
+                }
+            }
+            .onChange(of: vm.currentVideoId) { _, _ in
+                showRecommendations = false
+                highlightedControl = nil
+            }
+            .onChange(of: vm.pendingAutoplayVideo?.id) { _, id in
+                if id != nil {
+                    showRecommendations = false
+                    highlightedControl = nil
                 }
             }
     }
@@ -690,6 +752,18 @@ extension PlayerView {
             vm.setPlaybackSpeed(store.settings.playbackSpeed)
             vm.updateSettings(store.settings)
             vm.updateAuthToken(authService.accessToken)
+            #if DEBUG && os(tvOS)
+            if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") {
+                vm.settings.controlsHideTimeout = 2
+                if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ended") {
+                    vm.autoplayCountdownSleep = { _ in try await Task.sleep(for: .seconds(30)) }
+                    vm.settings.autoplayEnabled = true
+                    vm.settings.loopEnabled = false
+                    vm.settings.shuffleEnabled = false
+                    vm.handlePlaybackEnd()
+                }
+            }
+            #endif
             // UI testing only: force-show controls so the test can find player.nextBtn.
             if ProcessInfo.processInfo.arguments.contains("--uitesting-show-controls") {
                 swipeLog.notice("[PlayerView] --uitesting-show-controls (non-iOS) — showing controls")

@@ -131,22 +131,6 @@ extension PlaybackViewModel {
             }
         }
 
-        // BUG-010 fix: restart endObserverTask so autoplay-to-next works in audio-only mode.
-        // The main loadAsync sets up endObserverTask for the HLS AVPlayerItem; when we replace
-        // that item with an audio-only AVPlayerItem, the old observer watches the wrong object
-        // and didPlayToEndTimeNotification is never delivered.
-        endObserverTask?.cancel()
-        endObserverTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: AVPlayerItem.didPlayToEndTimeNotification,
-                object: item
-            )
-            for await _ in notifications {
-                guard let self, !Task.isCancelled else { return }
-                self.handlePlaybackEnd()
-            }
-        }
-
         audioOnlyLog.notice("Audio-only: loaded \(url.absoluteString.prefix(80))")
         return true
     }

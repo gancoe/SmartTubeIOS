@@ -71,6 +71,7 @@ public struct PlayerView: View {
     /// Drives the quality-change toast shown after the user picks a resolution.
     @State var qualityToastMessage: String?
     #if os(tvOS)
+    @State var showRecommendations = false
     @FocusState var playerFocused: Bool
     /// Which playback control is visually highlighted in the overlay.
     /// nil = not in controls-nav mode; all remote input targets the video layer.

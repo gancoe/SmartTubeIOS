@@ -23,17 +23,31 @@ extension PlaybackViewModel {
         controlsTimer = nil
     }
 
+    func controlsOverlayVisibilityChanged(_ visible: Bool) {
+        controlsOverlayVisible = visible
+        if visible {
+            cancelControlsHide()
+        } else if controlsVisible {
+            scheduleControlsHide()
+        }
+    }
+
+    public func hideControls() {
+        cancelControlsHide()
+        controlsVisible = false
+    }
+
     public func toggleControls() {
         playerLog.notice("[controls] toggleControls — controlsVisible=\(self.controlsVisible)")
         if controlsVisible {
-            controlsTimer?.cancel()
-            controlsVisible = false
+            hideControls()
         } else {
             showControls()
         }
     }
 
     func scheduleControlsHide() {
+        guard !controlsOverlayVisible else { return }
         // UI-testing: when --uitesting-show-controls is active, controls must never
         // auto-hide so XCUITest can always click player.nextBtn. Any call that restarts
         // the timer (e.g. from readyToPlay → showControls()) is suppressed here.
@@ -42,16 +56,22 @@ extension PlaybackViewModel {
         #endif
         // Fix #125: in landscape (fullscreen), give the user 50% more time before controls
         // disappear. The default timeout (from AppSettings) is 4 s → 6 s in landscape.
+        #if os(tvOS)
+        let timeout = Double(settings.controlsHideTimeout)
+        #else
         let timeout =
             isLandscape
             ? Double(settings.controlsHideTimeout) * 1.5
             : Double(settings.controlsHideTimeout)
+        #endif
         playerLog.debug(
             "[controls] scheduleControlsHide — resetting \(timeout)s timer (landscape=\(self.isLandscape)), isScrubbing=\(self.isScrubbing)"
         )
         controlsTimer?.cancel()
-        controlsTimer = Task {
-            try? await Task.sleep(for: .seconds(timeout))
+        let sleep = controlsHideSleep
+        controlsTimer = Task { [weak self] in
+            try? await sleep(.seconds(timeout))
+            guard let self else { return }
             playerLog.debug("[controls] timer fired — isCancelled=\(Task.isCancelled) isScrubbing=\(self.isScrubbing)")
             guard !Task.isCancelled else {
                 playerLog.debug("[controls] hide suppressed (cancelled)")

@@ -81,7 +81,7 @@ extension PlayerView {
     var isAnyOverlayVisible: Bool {
         showMoreMenu || showQualityPicker || showSpeedPicker || showSleepTimerPicker || showCaptionPicker
             || showAudioTrackPicker
-            || showDescriptionSheet || showCommentsSheet
+            || showDescriptionSheet || showCommentsSheet || showRecommendations || vm.pendingAutoplayVideo != nil
     }
 
     /// True while a SponsorBlock skip toast is visible.

@@ -5,7 +5,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 mkdir -p tmp
 report_dir="$(mktemp -d "$repo_root/tmp/native-tvos-tests.XXXXXX")"
-unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|PlaybackDiagnosticsTests|PlaybackItemFailureTests|PlaybackPrefetchTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests)/'
+unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|PlaybackDiagnosticsTests|PlaybackItemFailureTests|PlaybackPrefetchTests|PlaybackEndObserverTests|PlaybackControlsVisibilityTests|PlaybackIdleTimerTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests)/'
 
 just --command swift test --package-path SmartTubeIOS --filter "$unit_filter" 2>&1 | tee "$report_dir/unit.log"
 just --command python3 - "$report_dir/unit.log" <<'PY'
@@ -27,6 +27,8 @@ just --command xcodebuild test \
     -resultBundlePath "$report_dir/settings.xcresult" \
     -parallel-testing-enabled NO \
     -only-testing:SmartTubeTVUITests/TVSettingsUITests \
+    -only-testing:SmartTubeTVUITests/TVNativePlayerInteractionUITests \
+    -collect-test-diagnostics never \
     CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= CODE_SIGN_STYLE= \
     DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
     -quiet 2>&1 | tee "$report_dir/settings.log"
@@ -40,8 +42,8 @@ import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text())
 if summary['result'] != 'Passed' or summary['passedTests'] == 0 or summary['failedTests'] or summary['skippedTests']:
-    raise SystemExit('Native Settings checks must execute tests and pass without skips.')
-print(f"Settings: {summary['passedTests']} passed, zero failures or skips.")
+    raise SystemExit('Native UI checks must execute tests and pass without skips.')
+print(f"Native UI: {summary['passedTests']} passed, zero failures or skips.")
 PY
 
 printf 'Native checks passed. Reports: %s\n' "$report_dir"
