@@ -585,4 +585,47 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
         XCTAssertEqual(element("player.titleLabel").label, initialVideo)
     }
 }
+extension TVNativePlayerInteractionUITests {
+    @objc func testBackClosesStatsAndKeepsCurrentVideo() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-stats-for-nerds")
+        app.launch()
+        openTestVideo()
+        let title = element("player.titleLabel")
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        XCTAssertEqual(title.label, initialVideo)
+        let stats = app.staticTexts["Video ID"].firstMatch
+        XCTAssertTrue(stats.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: stats)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    @objc func testBackClosesMoreMenuBeforeStats() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-stats-for-nerds")
+        app.launch()
+        openTestVideo()
+        let title = element("player.titleLabel")
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        XCTAssertEqual(title.label, initialVideo)
+        let stats = app.staticTexts["Video ID"].firstMatch
+        XCTAssertTrue(stats.waitForExistence(timeout: 3))
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let menu = element("player.moreMenu.speedRow")
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: menu)
+        XCTAssertTrue(stats.exists)
+        remote.press(.menu)
+        wait("exists == false", for: stats)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+}
+
 #endif

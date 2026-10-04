@@ -505,6 +505,10 @@ extension PlayerView {
                     if commentsNavigation.back() { showCommentsSheet = false }
                     return
                 }
+                if vm.statsForNerdsVisible {
+                    vm.toggleStatsForNerds()
+                    return
+                }
                 if highlightedControl != nil || vm.controlsVisible {
                     highlightedControl = nil
                     vm.hideControls()

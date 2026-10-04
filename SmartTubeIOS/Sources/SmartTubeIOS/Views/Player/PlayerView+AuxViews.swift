@@ -69,7 +69,7 @@ struct StatsForNerdsOverlay: View {
             smallRow("Stream URL", snapshot.streamURL.isEmpty ? "—" : snapshot.streamURL)
             Divider().background(.white.opacity(0.2)).padding(.vertical, 2)
             row("Report ID", snapshot.reportID)
-            Text("Two-finger tap to dismiss  ·  Quote Report ID when sending diagnostics")
+            Text(dismissalHint)
                 .foregroundStyle(.white.opacity(0.4))
                 .font(.system(.caption2, design: .monospaced))
                 .padding(.top, 4)
@@ -92,6 +92,14 @@ struct StatsForNerdsOverlay: View {
                 }
             }
         }
+    }
+
+    private var dismissalHint: String {
+        #if os(tvOS)
+        return "Press Back to dismiss  ·  Quote Report ID when sending diagnostics"
+        #else
+        return "Two-finger tap to dismiss  ·  Quote Report ID when sending diagnostics"
+        #endif
     }
 
     private var bufferAhead: String {
