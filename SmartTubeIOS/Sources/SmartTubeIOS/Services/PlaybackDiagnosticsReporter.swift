@@ -14,11 +14,13 @@ private let playbackDiagnosticsLog = Logger(
 public struct PlaybackDiagnosticsConfiguration: Codable, Equatable, Sendable {
     public let endpoint: URL
     public let token: String
+    public let captureID: UUID?
 
-    public init?(endpoint: URL, token: String) {
+    public init?(endpoint: URL, token: String, captureID: UUID? = nil) {
         guard Self.isValidEndpoint(endpoint), Self.isValidToken(token) else { return nil }
         self.endpoint = endpoint
         self.token = token
+        self.captureID = captureID
     }
 
     public init?(bundle: Bundle = .main) {
@@ -26,14 +28,15 @@ public struct PlaybackDiagnosticsConfiguration: Codable, Equatable, Sendable {
             let data = try? Data(contentsOf: url),
             let file = try? JSONDecoder().decode(FileConfiguration.self, from: data)
         else { return nil }
-        self.init(endpointString: file.endpoint, token: file.token)
+        self.init(endpointString: file.endpoint, token: file.token, captureIDString: file.captureID)
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let endpoint = try container.decode(String.self, forKey: .endpoint)
         let token = try container.decode(String.self, forKey: .token)
-        guard let configuration = Self(endpointString: endpoint, token: token) else {
+        let captureID = try container.decodeIfPresent(String.self, forKey: .captureID)
+        guard let configuration = Self(endpointString: endpoint, token: token, captureIDString: captureID) else {
             throw ConfigurationError.invalid
         }
         self = configuration
@@ -43,11 +46,21 @@ public struct PlaybackDiagnosticsConfiguration: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(endpoint.absoluteString, forKey: .endpoint)
         try container.encode(token, forKey: .token)
+        try container.encodeIfPresent(captureID?.uuidString.lowercased(), forKey: .captureID)
     }
 
-    private init?(endpointString: String, token: String) {
+    private init?(endpointString: String, token: String, captureIDString: String? = nil) {
         guard let endpoint = URL(string: endpointString) else { return nil }
-        self.init(endpoint: endpoint, token: token)
+        let captureID: UUID?
+        if let captureIDString {
+            guard let parsed = UUID(uuidString: captureIDString),
+                parsed.uuidString.lowercased() == captureIDString.lowercased()
+            else { return nil }
+            captureID = parsed
+        } else {
+            captureID = nil
+        }
+        self.init(endpoint: endpoint, token: token, captureID: captureID)
     }
 
     private static func isValidToken(_ token: String) -> Bool {
@@ -95,11 +108,19 @@ public struct PlaybackDiagnosticsConfiguration: Codable, Equatable, Sendable {
     private struct FileConfiguration: Decodable {
         let endpoint: String
         let token: String
+        let captureID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case endpoint
+            case token
+            case captureID = "capture_id"
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case endpoint
         case token
+        case captureID = "capture_id"
     }
 
     private enum ConfigurationError: Error {
@@ -114,6 +135,141 @@ public struct PlaybackDiagnosticsLimits: Sendable, Equatable {
     public init(maxPendingEvents: Int = 1_000, maxStoreBytes: Int = 1_048_576) {
         self.maxPendingEvents = max(0, maxPendingEvents)
         self.maxStoreBytes = max(0, maxStoreBytes)
+    }
+}
+
+public struct PlaybackNativeSegment: Codable, Equatable, Sendable {
+    public let mediaType: String
+    public let itag: Int?
+    public let isMap: Bool
+    public let segmentDurationSeconds: Double?
+    public let resourceAvailable: Bool
+    public let transactionsAvailable: Bool
+    public let readFromCache: Bool?
+    public let resourceRequestDurationSeconds: Double?
+    public let errorDomain: String?
+    public let errorCode: Int?
+    public let transactions: [Transaction]
+
+    public struct Transaction: Codable, Equatable, Sendable {
+        public let index: Int
+        public let responseState: String
+        public let httpStatus: Int?
+        public let networkProtocol: String?
+        public let reusedConnection: Bool
+        public let requestToResponseSeconds: Double?
+        public let requestToCompletionSeconds: Double?
+
+        public init(
+            index: Int, responseState: String, httpStatus: Int?, networkProtocol: String?, reusedConnection: Bool,
+            requestToResponseSeconds: Double?, requestToCompletionSeconds: Double?
+        ) {
+            self.index = max(0, index)
+            self.responseState =
+                ["received", "response_absent"].contains(responseState) ? responseState : "response_absent"
+            self.httpStatus =
+                responseState == "received" ? httpStatus.flatMap { (100...599).contains($0) ? $0 : nil } : nil
+            self.networkProtocol =
+                ["h3", "h2", "http/1.1", "http/1.0", "other"].contains(networkProtocol ?? "") ? networkProtocol : nil
+            self.reusedConnection = reusedConnection
+            self.requestToResponseSeconds =
+                responseState == "received" ? Self.safeDuration(requestToResponseSeconds) : nil
+            self.requestToCompletionSeconds = Self.safeDuration(requestToCompletionSeconds)
+        }
+
+        private static func safeDuration(_ value: Double?) -> Double? {
+            guard let value, value.isFinite, value >= 0 else { return nil }
+            return value
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case index
+            case responseState = "response_state"
+            case httpStatus = "http_status"
+            case networkProtocol = "network_protocol"
+            case reusedConnection = "reused_connection"
+            case requestToResponseSeconds = "request_to_response_seconds"
+            case requestToCompletionSeconds = "request_to_completion_seconds"
+        }
+    }
+
+    public init(
+        mediaType: String, itag: Int?, isMap: Bool, segmentDurationSeconds: Double?, resourceAvailable: Bool,
+        transactionsAvailable: Bool, readFromCache: Bool?, resourceRequestDurationSeconds: Double? = nil,
+        errorDomain: String?, errorCode: Int?,
+        transactions: [Transaction]
+    ) {
+        self.mediaType = ["video", "audio", "muxed", "unknown"].contains(mediaType) ? mediaType : "unknown"
+        self.itag = itag.flatMap { (1...99_999).contains($0) ? $0 : nil }
+        self.isMap = isMap
+        self.segmentDurationSeconds = segmentDurationSeconds.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        self.resourceAvailable = resourceAvailable
+        self.transactionsAvailable = resourceAvailable && transactionsAvailable
+        self.readFromCache = resourceAvailable ? readFromCache : nil
+        self.resourceRequestDurationSeconds =
+            resourceAvailable
+            ? resourceRequestDurationSeconds.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+            : nil
+        self.errorDomain = resourceAvailable ? Self.safeErrorDomain(errorDomain) : nil
+        self.errorCode = resourceAvailable ? errorCode.flatMap { Int32(exactly: $0).map(Int.init) } : nil
+        self.transactions = resourceAvailable && transactionsAvailable ? Array(transactions.prefix(8)) : []
+    }
+
+    private static func safeErrorDomain(_ value: String?) -> String? {
+        guard let value else { return nil }
+        return [
+            "CoreMediaErrorDomain", "AVFoundationErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "other",
+        ].contains(value) ? value : "other"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mediaType = "media_type"
+        case itag
+        case isMap = "is_map"
+        case segmentDurationSeconds = "segment_duration_seconds"
+        case resourceAvailable = "resource_available"
+        case transactionsAvailable = "transactions_available"
+        case readFromCache = "read_from_cache"
+        case resourceRequestDurationSeconds = "resource_request_duration_seconds"
+        case errorDomain = "error_domain"
+        case errorCode = "error_code"
+        case transactions
+    }
+}
+
+public struct PlaybackNativeVariantSwitch: Codable, Equatable, Sendable {
+    public let succeeded: Bool
+    public let fromWidth: Int?
+    public let fromHeight: Int?
+    public let toWidth: Int?
+    public let toHeight: Int?
+    public let fromBitrateBps: Double?
+    public let toBitrateBps: Double?
+
+    public init(
+        succeeded: Bool, fromWidth: Int?, fromHeight: Int?, toWidth: Int?, toHeight: Int?,
+        fromBitrateBps: Double?, toBitrateBps: Double?
+    ) {
+        self.succeeded = succeeded
+        self.fromWidth = Self.safeDimension(fromWidth)
+        self.fromHeight = Self.safeDimension(fromHeight)
+        self.toWidth = Self.safeDimension(toWidth)
+        self.toHeight = Self.safeDimension(toHeight)
+        self.fromBitrateBps = Self.safeBitrate(fromBitrateBps)
+        self.toBitrateBps = Self.safeBitrate(toBitrateBps)
+    }
+
+    private static func safeDimension(_ value: Int?) -> Int? { value.flatMap { (1...20_000).contains($0) ? $0 : nil } }
+    private static func safeBitrate(_ value: Double?) -> Double? { value.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } }
+
+    private enum CodingKeys: String, CodingKey {
+        case succeeded
+        case fromWidth = "from_width"
+        case fromHeight = "from_height"
+        case toWidth = "to_width"
+        case toHeight = "to_height"
+        case fromBitrateBps = "from_bitrate_bps"
+        case toBitrateBps = "to_bitrate_bps"
     }
 }
 
@@ -145,6 +301,12 @@ public struct PlaybackDeliveryEvent: Codable, Sendable, Equatable {
     public let errorTimestamp: Date?
     public let errorComment: String
     public let errorResource: String
+    public let captureID: UUID?
+    public let itemGenerationID: UUID?
+    public let captureState: String?
+    public let diagnosticsDroppedEvents: Int?
+    public let nativeSegment: PlaybackNativeSegment?
+    public let nativeVariantSwitch: PlaybackNativeVariantSwitch?
 
     public init(
         schemaVersion: Int = 1,
@@ -173,7 +335,13 @@ public struct PlaybackDeliveryEvent: Codable, Sendable, Equatable {
         errorTimestamp: Date? = nil,
         errorComment: String = "",
         errorResource: String = "",
-        playbackPositionSeconds: Double? = nil
+        playbackPositionSeconds: Double? = nil,
+        captureID: UUID? = nil,
+        itemGenerationID: UUID? = nil,
+        captureState: String? = nil,
+        diagnosticsDroppedEvents: Int? = nil,
+        nativeSegment: PlaybackNativeSegment? = nil,
+        nativeVariantSwitch: PlaybackNativeVariantSwitch? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.eventID = eventID
@@ -202,6 +370,13 @@ public struct PlaybackDeliveryEvent: Codable, Sendable, Equatable {
         self.errorTimestamp = errorTimestamp
         self.errorComment = errorComment
         self.errorResource = errorResource
+        self.captureID = captureID
+        self.itemGenerationID = itemGenerationID
+        self.captureState =
+            ["active", "recovery", "ended", "unsupported"].contains(captureState ?? "") ? captureState : nil
+        self.diagnosticsDroppedEvents = diagnosticsDroppedEvents.flatMap { $0 >= 0 ? $0 : nil }
+        self.nativeSegment = nativeSegment
+        self.nativeVariantSwitch = nativeVariantSwitch
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -232,6 +407,59 @@ public struct PlaybackDeliveryEvent: Codable, Sendable, Equatable {
         case errorTimestamp = "error_timestamp"
         case errorComment = "error_comment"
         case errorResource = "error_resource"
+        case captureID = "capture_id"
+        case itemGenerationID = "item_generation_id"
+        case captureState = "capture_state"
+        case diagnosticsDroppedEvents = "diagnostics_dropped_events"
+        case nativeSegment = "native_segment"
+        case nativeVariantSwitch = "native_variant_switch"
+    }
+
+    func withDroppedEvents(_ count: Int) -> PlaybackDeliveryEvent {
+        PlaybackDeliveryEvent(
+            schemaVersion: schemaVersion, eventID: eventID, timestamp: timestamp, reportID: reportID,
+            videoID: videoID, resolution: resolution, rate: rate, bufferMediaSeconds: bufferMediaSeconds,
+            bufferViewingSeconds: bufferViewingSeconds, itemStatus: itemStatus, playbackStatus: playbackStatus,
+            waitingReason: waitingReason, streamRoute: streamRoute, advertisedBitrateBps: advertisedBitrateBps,
+            observedBitrateBps: observedBitrateBps, downloadedBytes: downloadedBytes, droppedFrames: droppedFrames,
+            stalls: stalls, peakBitrateBps: peakBitrateBps, accessEventCount: accessEventCount,
+            errorEventCount: errorEventCount, errorDomain: errorDomain, errorCode: errorCode,
+            errorTimestamp: errorTimestamp, errorComment: errorComment, errorResource: errorResource,
+            playbackPositionSeconds: playbackPositionSeconds, captureID: captureID,
+            itemGenerationID: itemGenerationID, captureState: captureState,
+            diagnosticsDroppedEvents: count, nativeSegment: nativeSegment, nativeVariantSwitch: nativeVariantSwitch)
+    }
+
+    func withNativeSegment(_ segment: PlaybackNativeSegment) -> PlaybackDeliveryEvent {
+        PlaybackDeliveryEvent(
+            schemaVersion: schemaVersion, eventID: eventID, timestamp: timestamp, reportID: reportID,
+            videoID: videoID, resolution: resolution, rate: rate, bufferMediaSeconds: bufferMediaSeconds,
+            bufferViewingSeconds: bufferViewingSeconds, itemStatus: itemStatus, playbackStatus: playbackStatus,
+            waitingReason: waitingReason, streamRoute: streamRoute, advertisedBitrateBps: advertisedBitrateBps,
+            observedBitrateBps: observedBitrateBps, downloadedBytes: downloadedBytes, droppedFrames: droppedFrames,
+            stalls: stalls, peakBitrateBps: peakBitrateBps, accessEventCount: accessEventCount,
+            errorEventCount: errorEventCount, errorDomain: errorDomain, errorCode: errorCode,
+            errorTimestamp: errorTimestamp, errorComment: errorComment, errorResource: errorResource,
+            playbackPositionSeconds: playbackPositionSeconds, captureID: captureID,
+            itemGenerationID: itemGenerationID, captureState: captureState,
+            diagnosticsDroppedEvents: diagnosticsDroppedEvents, nativeSegment: segment,
+            nativeVariantSwitch: nativeVariantSwitch)
+    }
+
+    func withNativeVariantSwitch(_ value: PlaybackNativeVariantSwitch) -> PlaybackDeliveryEvent {
+        PlaybackDeliveryEvent(
+            schemaVersion: schemaVersion, eventID: eventID, timestamp: timestamp, reportID: reportID,
+            videoID: videoID, resolution: resolution, rate: rate, bufferMediaSeconds: bufferMediaSeconds,
+            bufferViewingSeconds: bufferViewingSeconds, itemStatus: itemStatus, playbackStatus: playbackStatus,
+            waitingReason: waitingReason, streamRoute: streamRoute, advertisedBitrateBps: advertisedBitrateBps,
+            observedBitrateBps: observedBitrateBps, downloadedBytes: downloadedBytes, droppedFrames: droppedFrames,
+            stalls: stalls, peakBitrateBps: peakBitrateBps, accessEventCount: accessEventCount,
+            errorEventCount: errorEventCount, errorDomain: errorDomain, errorCode: errorCode,
+            errorTimestamp: errorTimestamp, errorComment: errorComment, errorResource: errorResource,
+            playbackPositionSeconds: playbackPositionSeconds, captureID: captureID,
+            itemGenerationID: itemGenerationID, captureState: captureState,
+            diagnosticsDroppedEvents: diagnosticsDroppedEvents, nativeSegment: nativeSegment,
+            nativeVariantSwitch: value)
     }
 
 }
@@ -282,6 +510,7 @@ public actor PlaybackDiagnosticsReporter {
     private let storeURL: URL
     private let transport: any PlaybackDiagnosticsTransport
     private var pending: [PlaybackDeliveryEvent]
+    private var droppedEvents = 0
     private let encoder: JSONEncoder
     private var isFlushing = false
 
@@ -306,10 +535,12 @@ public actor PlaybackDiagnosticsReporter {
 
         var identifiers = Set(pending.map(\.eventID))
         for event in events where !identifiers.contains(event.eventID) {
-            pending.append(event)
+            pending.append(
+                droppedEvents == 0
+                    ? event : event.withDroppedEvents(droppedEvents + (event.diagnosticsDroppedEvents ?? 0)))
             identifiers.insert(event.eventID)
         }
-        trimPending()
+        droppedEvents += trimPending()
         persist()
     }
 
@@ -356,22 +587,26 @@ public actor PlaybackDiagnosticsReporter {
         return request
     }
 
-    private func trimPending() {
+    private func trimPending() -> Int {
+        var removed = 0
         while pending.count > limits.maxPendingEvents {
             pending.removeFirst()
+            removed += 1
         }
         while !pending.isEmpty {
             guard let data = try? encoder.encode(pending) else {
                 pending.removeFirst()
+                removed += 1
                 continue
             }
-            if data.count <= limits.maxStoreBytes { return }
+            if data.count <= limits.maxStoreBytes { return removed }
             pending.removeFirst()
+            removed += 1
         }
+        return removed
     }
 
     private func persist() {
-        trimPending()
         guard let data = try? encoder.encode(pending) else {
             playbackDiagnosticsLog.error("queue encoding failed")
             return

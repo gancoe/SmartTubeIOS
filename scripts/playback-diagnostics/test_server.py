@@ -147,6 +147,18 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(second_body["accepted"])
         self.assertEqual(self.server.store.count(), 1)
 
+    def test_native_metrics_roundtrip_and_malformed_enum_returns_400(self) -> None:
+        payload = NativeMetricValidationTests().payload()
+        status, _ = self.request("POST", "/v1/events", payload)
+        self.assertEqual(status, 201)
+        status, body = self.request("GET", "/v1/events?limit=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["events"][0]["native_segment"], payload["native_segment"])
+        payload["native_segment"]["media_type"] = []
+        status, body = self.request("POST", "/v1/events", payload)
+        self.assertEqual(status, 400)
+        self.assertEqual(body, {"error": "invalid payload"})
+
     def test_retention_is_bounded_and_chronological(self) -> None:
         for index in range(4):
             timestamp = (
@@ -250,6 +262,178 @@ class ValidationTests(unittest.TestCase):
         payload = event()
         payload["error_resource"] = "unknown"
         self.assertEqual(validate_event(payload)["error_resource"], "unknown")
+
+
+class NativeMetricValidationTests(unittest.TestCase):
+    def payload(self) -> dict:
+        payload = event()
+        payload.update(
+            capture_id=str(uuid.uuid4()),
+            item_generation_id=str(uuid.uuid4()),
+            capture_state="active",
+            diagnostics_dropped_events=0,
+            native_segment={
+                "media_type": "video",
+                "itag": 625,
+                "is_map": False,
+                "segment_duration_seconds": 5.0,
+                "resource_request_duration_seconds": 0.5,
+                "resource_available": True,
+                "transactions_available": True,
+                "read_from_cache": False,
+                "error_domain": None,
+                "error_code": None,
+                "transactions": [
+                    {
+                        "index": 0,
+                        "response_state": "received",
+                        "http_status": 200,
+                        "network_protocol": "h3",
+                        "reused_connection": True,
+                        "request_to_response_seconds": 0.1,
+                        "request_to_completion_seconds": 0.5,
+                    }
+                ],
+            },
+        )
+        return payload
+
+    def test_safe_native_metric_roundtrip_and_old_event(self):
+        payload = self.payload()
+        self.assertEqual(
+            validate_event(payload)["native_segment"], payload["native_segment"]
+        )
+        self.assertIsNone(validate_event(event())["native_segment"])
+
+    def test_unavailable_is_not_a_timeout(self):
+        payload = self.payload()
+        segment = payload["native_segment"]
+        segment.update(
+            resource_available=False,
+            transactions_available=False,
+            read_from_cache=None,
+            resource_request_duration_seconds=None,
+            transactions=[],
+        )
+        normalized = validate_event(payload)["native_segment"]
+        self.assertIsNone(normalized["error_code"])
+        self.assertEqual(normalized["transactions"], [])
+
+    def test_absent_response_is_not_an_http_status(self):
+        payload = self.payload()
+        transaction = payload["native_segment"]["transactions"][0]
+        transaction.update(
+            response_state="response_absent",
+            http_status=None,
+            request_to_response_seconds=None,
+        )
+        self.assertIsNone(
+            validate_event(payload)["native_segment"]["transactions"][0]["http_status"]
+        )
+        transaction["http_status"] = 200
+        with self.assertRaises(ValueError):
+            validate_event(payload)
+
+    def test_absent_metrics_cannot_claim_resource_or_response_fields(self):
+        for field, value in (
+            ("read_from_cache", True),
+            ("error_domain", "CoreMediaErrorDomain"),
+            ("error_code", -12889),
+            ("resource_request_duration_seconds", 13.0),
+        ):
+            payload = self.payload()
+            segment = payload["native_segment"]
+            segment.update(
+                resource_available=False,
+                transactions_available=False,
+                transactions=[],
+                read_from_cache=None,
+                resource_request_duration_seconds=None,
+            )
+            segment[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_event(payload)
+        payload = self.payload()
+        transaction = payload["native_segment"]["transactions"][0]
+        transaction.update(
+            response_state="response_absent",
+            http_status=None,
+            request_to_response_seconds=0.5,
+        )
+        with self.assertRaises(ValueError):
+            validate_event(payload)
+
+    def test_raw_data_rejected_at_every_nested_level(self):
+        for level in ("segment", "transaction", "variant"):
+            payload = self.payload()
+            if level == "segment":
+                payload["native_segment"]["url"] = "https://example.test/?token=secret"
+            elif level == "transaction":
+                payload["native_segment"]["transactions"][0]["headers"] = {
+                    "Authorization": "secret"
+                }
+            else:
+                payload["native_variant_switch"] = {
+                    "succeeded": True,
+                    "url": "https://example.test/secret",
+                }
+            with self.subTest(level=level), self.assertRaises(ValueError):
+                validate_event(payload)
+
+    def test_bounds_and_types_are_enforced(self):
+        for key, bad in (
+            ("itag", True),
+            ("itag", 0),
+            ("segment_duration_seconds", float("nan")),
+            ("transactions", [{}] * 9),
+            ("resource_available", "true"),
+        ):
+            payload = self.payload()
+            payload["native_segment"][key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_event(payload)
+        for key, bad in (
+            ("capture_id", "not-a-uuid"),
+            ("diagnostics_dropped_events", True),
+            ("capture_state", "https://example.test"),
+        ):
+            payload = self.payload()
+            payload[key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_event(payload)
+
+    def test_variant_switch_fields_are_bounded(self):
+        payload = self.payload()
+        payload["native_variant_switch"] = {
+            "succeeded": True,
+            "from_height": 2160,
+            "to_height": 480,
+        }
+        self.assertEqual(
+            validate_event(payload)["native_variant_switch"]["to_height"], 480
+        )
+        payload["native_variant_switch"]["to_height"] = -1
+        with self.assertRaises(ValueError):
+            validate_event(payload)
+
+    def test_enum_containers_are_rejected_without_type_errors(self):
+        for field in (
+            "capture_state",
+            "media_type",
+            "error_domain",
+            "response_state",
+            "network_protocol",
+        ):
+            for bad in ([], {}):
+                payload = self.payload()
+                target = payload
+                if field in ("media_type", "error_domain"):
+                    target = payload["native_segment"]
+                elif field in ("response_state", "network_protocol"):
+                    target = payload["native_segment"]["transactions"][0]
+                target[field] = bad
+                with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                    validate_event(payload)
 
 
 if __name__ == "__main__":

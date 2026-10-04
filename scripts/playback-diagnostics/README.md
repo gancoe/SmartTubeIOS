@@ -65,3 +65,20 @@ The service does not log request headers or bodies.
 
 Error comments permit known timeout messages or a canonical `HTTP NNN` status
 extracted from the native error comment. The original HTTP comment is never sent.
+
+An opt-in native capture adds `capture_id`, `item_generation_id`, `capture_state`,
+`diagnostics_dropped_events`, `native_segment` and `native_variant_switch`.
+Existing clients may omit these fields. Segment records contain only media type,
+itag, segment and resource request durations, cache/availability flags, a safe error domain and code, and up to
+eight network transactions. Each transaction permits HTTP status, protocol,
+connection reuse and request timing. Completed variant switches permit success,
+dimensions and bitrates. Nested unknown fields are rejected, including URLs,
+headers and raw errors. Missing native metrics mean unavailable; an absent
+response does not establish a timeout.
+
+The app limits a capture to 30 minutes, or the first explicit `-16830`/`-12889`
+error followed by 60 seconds of recovery. A capture UUID identifies one run;
+reopening the app does not reset its deadline. Item generation UUIDs distinguish
+replacement player items. Native subscriptions stop on replacement, shutdown or
+expiry, and the client counts discarded diagnostic events. These diagnostics do
+not alter quality selection, buffering, headers or playback recovery.

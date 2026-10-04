@@ -216,6 +216,13 @@ public final class PlaybackViewModel {
     public internal(set) var statsSnapshot: StatsForNerdsSnapshot = .empty
     @ObservationIgnored var playbackDiagnosticsReporter: PlaybackDiagnosticsReporter?
     @ObservationIgnored var playbackDiagnosticsSampler = PlaybackDiagnosticsSampler()
+    @ObservationIgnored var playbackDiagnosticsMetricTasks: [Task<Void, Never>] = []
+    @ObservationIgnored var playbackDiagnosticsItemObservation: NSKeyValueObservation?
+    @ObservationIgnored var playbackDiagnosticsItemGenerationID: UUID?
+    @ObservationIgnored var playbackDiagnosticsCaptureSession: PlaybackDiagnosticsCaptureSession?
+    @ObservationIgnored var playbackDiagnosticsMetricGate = PlaybackDiagnosticsMetricGate()
+    @ObservationIgnored var playbackDiagnosticsExpiryTask: Task<Void, Never>?
+    @ObservationIgnored var playbackDiagnosticsDroppedNativeEvents = 0
     /// End-screen cards to overlay during the final seconds of the video.
     public internal(set) var endCards: [EndCard] = []
     /// When `true`, the player loads only the audio-only adaptive stream and displays
@@ -291,7 +298,11 @@ public final class PlaybackViewModel {
 
     // MARK: - AVPlayer
 
-    public internal(set) var player: AVPlayer
+    public internal(set) var player: AVPlayer {
+        didSet {
+            if oldValue !== player { rebindPlaybackDiagnosticsPlayer() }
+        }
+    }
     static var activeIdleTimerOwnerToken: UUID?
     @ObservationIgnored var makeRecoveryPlayer: @MainActor () -> AVPlayer = { AVPlayer() }
     @ObservationIgnored nonisolated(unsafe) var failurePlayerObserver: NSKeyValueObservation?
