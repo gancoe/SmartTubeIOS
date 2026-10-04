@@ -3,6 +3,7 @@ import SmartTubeIOSCore
 import os
 
 private let playerLog = CrashlyticsLogger(category: "Player")
+private let deliveryLog = Logger(subsystem: appSubsystem, category: "PlaybackDeliveryDiagnostics")
 
 // MARK: - Stats for Nerds
 
@@ -20,7 +21,8 @@ extension PlaybackViewModel {
             statsSnapshot = .empty
             return
         }
-        let logEvent = item.accessLog()?.events.last
+        let accessLog = item.accessLog()
+        let logEvent = accessLog?.events.last
         let videoId = playerInfo?.video.id ?? currentVideo?.id ?? ""
 
         // Resolution — always derived from AVPlayer's presentationSize (the actual decoded
@@ -74,7 +76,7 @@ extension PlaybackViewModel {
         let droppedFrames = logEvent.map { $0.numberOfDroppedVideoFrames } ?? 0
         let stalls = logEvent.map { $0.numberOfStalls } ?? 0
 
-        let resSource = selectedFormat != nil ? "selectedFormat(\(selectedFormat!.qualityLabel))" : "presentationSize"
+        let resSource = "presentationSize"
         // Only forward to Crashlytics breadcrumbs when something meaningful changed.
         // Silent 0.5 s ticks otherwise saturate the 64 KB breadcrumb buffer and push
         // critical events (load, quality switch, errors) out of the window.
@@ -112,11 +114,42 @@ extension PlaybackViewModel {
             } ?? "—",
             streamType: lastSuccessfulStreamType
         )
-        statsSnapshot = playbackDiagnostics(snapshot: snapshot, item: item)
+        statsSnapshot = playbackDiagnostics(snapshot: snapshot, item: item, accessLog: accessLog)
     }
 
-    private func playbackDiagnostics(snapshot: StatsForNerdsSnapshot, item: AVPlayerItem) -> StatsForNerdsSnapshot {
+    private func recordDeliveryChange(_ snapshot: StatsForNerdsSnapshot, previous: StatsForNerdsSnapshot) {
+        let errorChanged =
+            snapshot.errorLogEventCount != previous.errorLogEventCount
+            || snapshot.errorLogDate != previous.errorLogDate || snapshot.errorLog != previous.errorLog
+        let playbackChanged =
+            snapshot.playerTimeControlStatus != previous.playerTimeControlStatus
+            || snapshot.playerRate != previous.playerRate || snapshot.streamType != previous.streamType
+        if snapshot.videoId != previous.videoId || snapshot.displayResolution != previous.displayResolution
+            || errorChanged || playbackChanged
+        {
+            let errorDate = snapshot.errorLogDate?.formatted(.iso8601) ?? "—"
+            let viewingBuffer = snapshot.bufferViewingSeconds.map { String(format: "%.1f", $0) } ?? "—"
+            let details = [
+                "report=\(snapshot.reportID)", "res=\(snapshot.displayResolution)", "rate=\(snapshot.playerRate ?? 0)",
+                "viewingBuffer=\(viewingBuffer)s", "route=\(snapshot.streamType)",
+                "advertised=\(snapshot.advertisedBitrate)", "errors=\(snapshot.errorLogEventCount)",
+                "lastError=\(snapshot.errorLog)", "errorDate=\(errorDate)",
+                "comment=\(snapshot.errorLogComment)",
+            ].joined(separator: " ")
+            deliveryLog.notice("[hls-delivery] \(details, privacy: .public)")
+        }
+    }
+
+    private func playbackDiagnostics(
+        snapshot: StatsForNerdsSnapshot, item: AVPlayerItem, accessLog: AVPlayerItemAccessLog?
+    ) -> StatsForNerdsSnapshot {
         var snapshot = snapshot
+        let accessEvent = accessLog?.events.last
+        snapshot.advertisedBitrate = Self.deliveryBitrateLabel(accessEvent?.indicatedBitrate)
+        snapshot.accessLogEventCount = accessLog?.events.count ?? 0
+        if let bytes = accessEvent?.numberOfBytesTransferred, bytes >= 0 {
+            snapshot.downloadedBytes = bytes
+        }
         snapshot.playerTimeControlStatus = Self.timeControlStatusLabel(player.timeControlStatus)
         snapshot.playerRate = player.rate
         snapshot.waitingReason = Self.waitingReasonLabel(player.reasonForWaitingToPlay)
@@ -126,7 +159,14 @@ extension PlaybackViewModel {
         snapshot.playbackLikelyToKeepUp = item.isPlaybackLikelyToKeepUp
         snapshot.itemError = Self.errorSummary(item.error)
         snapshot.playerError = Self.errorSummary(player.error)
-        snapshot.errorLog = Self.errorLogSummary(item.errorLog()?.events.last)
+        let errorLog = item.errorLog()
+        let errorEvent = errorLog?.events.last
+        snapshot.errorLog = Self.errorLogSummary(errorEvent)
+        snapshot.errorLogDate = errorEvent?.date
+        snapshot.errorLogEventCount = errorLog?.events.count ?? 0
+        snapshot.errorLogComment = Self.errorLogCommentSummary(errorEvent?.errorComment)
+        snapshot.peakBitrateLimit = item.preferredPeakBitRate
+        recordDeliveryChange(snapshot, previous: statsSnapshot)
         return snapshot
     }
 
@@ -167,6 +207,20 @@ extension PlaybackViewModel {
     static func errorLogSummary(_ event: AVPlayerItemErrorLogEvent?) -> String {
         guard let event else { return "—" }
         return "\(event.errorDomain)#\(event.errorStatusCode)"
+    }
+
+    static func errorLogCommentSummary(_ comment: String?) -> String {
+        guard let comment, !comment.isEmpty else { return "—" }
+        let pattern = #"^Media (file|playlist) not received in [0-9]+(\.[0-9]+)?s$"#
+        guard comment.range(of: pattern, options: .regularExpression) == comment.startIndex..<comment.endIndex else {
+            return "Details redacted"
+        }
+        return comment
+    }
+
+    static func deliveryBitrateLabel(_ bitrate: Double?) -> String {
+        guard let bitrate, bitrate.isFinite, bitrate > 0, bitrate < Double(Int.max) else { return "—" }
+        return formatBitrate(Int(bitrate))
     }
 
     static func contiguousBufferAheadSeconds(for item: AVPlayerItem) -> Double? {
@@ -257,6 +311,26 @@ public struct StatsForNerdsSnapshot: Sendable {
     public var itemError: String = "—"
     public var playerError: String = "—"
     public var errorLog: String = "—"
+    public var errorLogDate: Date?
+    public var errorLogEventCount: Int = 0
+    public var errorLogComment: String = "—"
+    public var advertisedBitrate: String = "—"
+    public var accessLogEventCount: Int = 0
+    public var downloadedBytes: Int64?
+    public var peakBitrateLimit: Double?
+
+    public func errorLogAgeSeconds(at now: Date = Date()) -> TimeInterval? {
+        guard let errorLogDate else { return nil }
+        let age = now.timeIntervalSince(errorLogDate)
+        return age.isFinite && age >= 0 ? age : nil
+    }
+
+    public var bufferViewingSeconds: Double? {
+        guard let seconds = bufferAheadSeconds, seconds.isFinite, seconds >= 0,
+            let rate = playerRate, rate.isFinite, rate > 0
+        else { return nil }
+        return seconds / Double(rate)
+    }
 
     public static let empty = StatsForNerdsSnapshot(
         videoId: "",
