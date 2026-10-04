@@ -37,8 +37,12 @@ struct StatsForNerdsOverlay: View {
                 "requested=\(NativeVideoDecoderCapabilities.current.didRequestSupplementalVP9 ? "yes" : "no") · before=\(NativeVideoDecoderCapabilities.current.vp9HardwareDecodeSupportedBeforeOptIn ? "yes" : "no")"
             )
             #endif
-            row("Nominal Bitrate", snapshot.nominalBitrate)
+            row("Selected bitrate", snapshot.nominalBitrate)
+            row(
+                "Stream advertised",
+                "\(snapshot.advertisedBitrate) · cap=\(bitrateLimit) · access#\(snapshot.accessLogEventCount)")
             row("Download sample", snapshot.observedBitrate)
+            row("Transferred total", "\(downloadedBytes) · access#\(snapshot.accessLogEventCount)")
             row("Dropped Frames", "\(snapshot.droppedFrames)")
             row("Stalls", "\(snapshot.stalls)")
             Divider().background(.white.opacity(0.2)).padding(.vertical, 2)
@@ -50,8 +54,13 @@ struct StatsForNerdsOverlay: View {
                 "Buffer",
                 "\(bufferAhead) ahead · empty=\(flagLabel(snapshot.playbackBufferEmpty)) · keepUp=\(flagLabel(snapshot.playbackLikelyToKeepUp))"
             )
+            row("Viewing buffer", viewingBuffer)
             row("Item", snapshot.itemStatus)
             row("Errors", errorSummary)
+            if snapshot.errorLog != "—" {
+                row("Last log event", errorEventTiming)
+                row("Log comment", snapshot.errorLogComment)
+            }
             row("TTP (low-q)", snapshot.timeToPlayMs > 0 ? "\(snapshot.timeToPlayMs) ms" : "—")
             row("TTP (hi-q)", snapshot.timeToHighQualityMs > 0 ? "\(snapshot.timeToHighQualityMs) ms" : "—")
             row("Stream Type", snapshot.streamType.isEmpty ? "—" : snapshot.streamType)
@@ -92,6 +101,27 @@ struct StatsForNerdsOverlay: View {
     private var rateLabel: String {
         guard let rate = snapshot.playerRate else { return "—" }
         return String(format: "%.2fx", rate)
+    }
+
+    private var viewingBuffer: String {
+        guard let seconds = snapshot.bufferViewingSeconds else { return "—" }
+        return String(format: "%.1fs at current speed", seconds)
+    }
+
+    private var bitrateLimit: String {
+        guard let limit = snapshot.peakBitrateLimit else { return "—" }
+        return limit == 0 ? "system" : PlaybackViewModel.deliveryBitrateLabel(limit)
+    }
+
+    private var downloadedBytes: String {
+        guard let bytes = snapshot.downloadedBytes else { return "—" }
+        return String(format: "%.1f MB", Double(bytes) / 1_000_000)
+    }
+
+    private var errorEventTiming: String {
+        let timestamp = snapshot.errorLogDate?.formatted(.iso8601) ?? "time unknown"
+        let age = snapshot.errorLogAgeSeconds().map { String(format: "%.0fs ago", $0) } ?? "age unknown"
+        return "\(timestamp) · \(age) · events=\(snapshot.errorLogEventCount)"
     }
 
     private func flagLabel(_ value: Bool?) -> String {

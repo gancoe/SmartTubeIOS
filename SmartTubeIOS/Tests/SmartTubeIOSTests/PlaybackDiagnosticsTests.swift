@@ -69,6 +69,34 @@ struct PlaybackDiagnosticsTests {
         #expect(viewModel.statsSnapshot.bufferAheadSeconds == 6)
     }
 
+    @Test("buffer viewing time accounts for accelerated playback without changing the player")
+    func reportsBufferAtPlaybackSpeed() {
+        let item = ControlledAVPlayerItem()
+        item.currentTimeValue = CMTime(seconds: 10, preferredTimescale: 600)
+        item.loadedTimeRangesValue = [
+            NSValue(
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: 10, preferredTimescale: 600),
+                    duration: CMTime(seconds: 60, preferredTimescale: 600)))
+        ]
+        let player = ControlledAVPlayer(item: item)
+        player.rateValue = 1.5
+        let viewModel = PlaybackViewModel(player: player)
+
+        viewModel.updateStatsSnapshot()
+        #expect(viewModel.statsSnapshot.bufferViewingSeconds == 40)
+        #expect(player.rate == 1.5)
+
+        player.rateValue = 2
+        viewModel.updateStatsSnapshot()
+        #expect(viewModel.statsSnapshot.bufferViewingSeconds == 30)
+        #expect(player.rate == 2)
+
+        player.rateValue = 0
+        viewModel.updateStatsSnapshot()
+        #expect(viewModel.statsSnapshot.bufferViewingSeconds == nil)
+    }
+
     @Test("missing current item reports unknown diagnostics")
     func reportsMissingCurrentItem() {
         let viewModel = PlaybackViewModel(player: ControlledAVPlayer(item: nil))
@@ -80,6 +108,23 @@ struct PlaybackDiagnosticsTests {
         #expect(viewModel.statsSnapshot.bufferAheadSeconds == nil)
         #expect(viewModel.statsSnapshot.playbackBufferEmpty == nil)
         #expect(viewModel.statsSnapshot.playbackLikelyToKeepUp == nil)
+    }
+
+    @Test("delivery comments preserve known timeout details without exposing request credentials")
+    func reportsSafeDeliveryComment() {
+        #expect(PlaybackViewModel.errorLogCommentSummary(nil) == "—")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("Media file not received in 15s")
+                == "Media file not received in 15s")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("Media file not received in 6.5s")
+                == "Media file not received in 6.5s")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("https://cdn.example/video?sig=secret")
+                == "Details redacted")
+        #expect(
+            PlaybackViewModel.errorLogCommentSummary("Media file not received in 15s\nAuthorization: secret")
+                == "Details redacted")
     }
 
     @Test("error diagnostics retain only domain and code")
@@ -110,6 +155,49 @@ struct PlaybackDiagnosticsTests {
         #expect(!viewModel.statsSnapshot.playerError.contains(privateToken))
         #expect(!viewModel.statsSnapshot.itemError.contains("https://"))
         #expect(!viewModel.statsSnapshot.playerError.contains("?"))
+    }
+
+    @Test("a retained error gets older while a subsequent event resets its age")
+    func reportsErrorEventAge() {
+        let firstEvent = Date(timeIntervalSince1970: 1_000)
+        var snapshot = StatsForNerdsSnapshot.empty
+        #expect(snapshot.errorLogAgeSeconds(at: firstEvent) == nil)
+
+        snapshot.errorLogDate = firstEvent
+        #expect(snapshot.errorLogAgeSeconds(at: firstEvent.addingTimeInterval(60)) == 60)
+        #expect(snapshot.errorLogAgeSeconds(at: firstEvent.addingTimeInterval(120)) == 120)
+
+        snapshot.errorLogDate = firstEvent.addingTimeInterval(118)
+        #expect(snapshot.errorLogAgeSeconds(at: firstEvent.addingTimeInterval(120)) == 2)
+        #expect(snapshot.errorLogAgeSeconds(at: firstEvent) == nil)
+    }
+
+    @Test("snapshot observes the installed bitrate limit without modifying playback policy")
+    func reportsInstalledBitrateLimit() {
+        let item = ControlledAVPlayerItem()
+        item.preferredPeakBitRate = 45_000_000
+        let viewModel = PlaybackViewModel(player: ControlledAVPlayer(item: item))
+
+        viewModel.updateStatsSnapshot()
+
+        #expect(viewModel.statsSnapshot.peakBitrateLimit == 45_000_000)
+        #expect(item.preferredPeakBitRate == 45_000_000)
+        #expect(viewModel.statsSnapshot.errorLogEventCount == 0)
+        #expect(viewModel.statsSnapshot.errorLogDate == nil)
+        #expect(viewModel.statsSnapshot.errorLogComment == "—")
+        #expect(viewModel.statsSnapshot.advertisedBitrate == "—")
+        #expect(viewModel.statsSnapshot.downloadedBytes == nil)
+    }
+
+    @Test("unavailable or invalid advertised bitrate stays unknown")
+    func reportsUnknownAdvertisedBitrate() {
+        #expect(PlaybackViewModel.deliveryBitrateLabel(nil) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(-1) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(0) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(.infinity) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(.nan) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(Double(Int.max)) == "—")
+        #expect(PlaybackViewModel.deliveryBitrateLabel(4_000_000) == "4.0 Mbps")
     }
 
     @Test("refresh reads current player and item state after playback stops")
