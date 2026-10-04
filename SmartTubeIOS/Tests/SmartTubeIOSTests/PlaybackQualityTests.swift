@@ -659,12 +659,6 @@ struct PlaybackQualityTests {
         }
     }
 
-    // MARK: - PlayerItemSwappable abstraction (#142)
-    //
-    // PlayerItemSwappable lives in SmartTubeIOS (requires AVFoundation), so we cannot
-    // import it here. These structural tests document the protocol contract using local
-    // mirror types.
-
     // MARK: - HLS manifest cache (#163)
 
     /// Task #163: cached variants are returned for the same videoId within the TTL window.
@@ -714,72 +708,6 @@ struct PlaybackQualityTests {
             cache.variants(for: videoId) == nil,
             "After 403, stale CDN variant URLs must be evicted so retry fetches fresh ones"
         )
-    }
-
-    @Test @MainActor func playerItemSwappable_replaceCurrentItem_calledOnce() async {
-        // Structural: documents that PlaybackQualityManager calls replaceCurrentItem exactly
-        // once per reload path (both reloadHLSItem and reloadHLSItemH264Capped).
-        final class MockPlayerMirror {
-            var rate: Float = 0
-            private(set) var replaceCallCount = 0
-            func replaceCurrentItem() { replaceCallCount += 1 }
-        }
-        let mock = MockPlayerMirror()
-        mock.replaceCurrentItem()
-        #expect(mock.replaceCallCount == 1, "replaceCurrentItem must be called exactly once per reload")
-    }
-
-    @Test func playerItemSwappable_rateIsSetAfterReady() {
-        // Structural: documents that rate is set on the player when status becomes readyToPlay.
-        final class MockPlayerMirror {
-            var rate: Float = 0
-        }
-        let mock = MockPlayerMirror()
-        mock.rate = 1.5
-        #expect(mock.rate == 1.5, "player.rate must reflect the requested playback speed")
-    }
-
-    // MARK: - HLS stream configuration (#HLS-CFG)
-
-    /// The startup forward buffer must be 2 seconds so playback begins quickly on slow
-    /// networks. The value is applied to every HLS AVPlayerItem at creation time
-    /// (initial load, fallback retry, and quality switch).
-    @Test func hlsStartupBufferDuration_is2Seconds() {
-        // Mirrors the constant used in:
-        //   PlaybackViewModel+Loading.swift: item.preferredForwardBufferDuration = 2.0
-        //   PlaybackViewModel+Fallback.swift (attemptURL): item.preferredForwardBufferDuration = 2.0
-        //   PlaybackQualityManager.reloadHLSItem: item.preferredForwardBufferDuration = 2.0
-        let startupBuffer: TimeInterval = 2.0
-        #expect(
-            startupBuffer == 2.0,
-            "HLS startup buffer must be 2 s — reduces spinner time before first frame appears")
-    }
-
-    /// After startup, the forward buffer is reset to 0 (system default ~30 s) so that
-    /// scrubbing and seeking have enough lookahead. The reset fires after 5 seconds.
-    @Test func hlsBufferResetDelay_is5Seconds() {
-        let resetDelay: TimeInterval = 5.0
-        #expect(
-            resetDelay == 5.0,
-            "Buffer reset delay must be 5 s — long enough that first-frame has rendered before resetting")
-    }
-
-    /// After reset, preferredForwardBufferDuration == 0 restores the system default (~30 s).
-    /// A value of 0 means "use AVPlayer's default" per Apple documentation.
-    @Test func hlsBufferAfterReset_isZero() {
-        let afterResetValue: TimeInterval = 0
-        #expect(
-            afterResetValue == 0,
-            "preferredForwardBufferDuration = 0 restores AVPlayer system default after startup")
-    }
-
-    /// The User-Agent header key for AVURLAsset must match the string Apple expects.
-    /// A typo here silently drops the custom header and may cause CDN signature failures.
-    @Test func hlsAssetHeaderKey_isCorrect() {
-        let key = "AVURLAssetHTTPHeaderFieldsKey"
-        #expect(
-            key == "AVURLAssetHTTPHeaderFieldsKey",
-            "AVURLAsset header key must match the exact string expected by AVFoundation")
     }
 
     /// The iOS client User-Agent must be non-empty; an empty string would cause AVPlayer to
