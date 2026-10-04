@@ -331,12 +331,19 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
             "--uitesting-inject-related-video-ids=\(firstRelated),\(secondRelated)",
         ]
         app.launch()
+        openTestVideo()
         XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
     }
 
     override func tearDownWithError() throws {
         app.terminate()
         app = nil
+    }
+
+    private func openTestVideo() {
+        let open = app.buttons["Open test video"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        remote.press(.select)
     }
 
     private func element(_ identifier: String) -> XCUIElement {
@@ -377,13 +384,82 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
         remote.press(.down)
         let first = relatedButton(firstRelated)
         XCTAssertTrue(first.waitForExistence(timeout: 3))
-        wait("hasFocus == true", for: first)
+        wait("value == 'Selected'", for: first)
         remote.press(.right)
         let second = relatedButton(secondRelated)
-        wait("hasFocus == true", for: second)
+        wait("value == 'Selected'", for: second)
         remote.press(.select)
         wait("label == '\(secondRelated)'", for: element("player.titleLabel"))
         XCTAssertFalse(first.exists)
+    }
+
+    private func openDescription() {
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let row = element("player.moreMenu.descriptionRow")
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        for _ in 0..<8 {
+            if row.hasFocus { break }
+            remote.press(.down)
+        }
+        XCTAssertTrue(row.hasFocus)
+        remote.press(.select)
+    }
+
+    func testBackClosesDescriptionAndKeepsCurrentVideo() {
+        for _ in 0..<3 {
+            openDescription()
+            let description = app.staticTexts["Test video description"]
+            XCTAssertTrue(description.waitForExistence(timeout: 3))
+            remote.press(.menu)
+            wait("exists == false", for: description)
+            XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+            wait("exists == false", for: element("player.playPauseButton"), timeout: 4)
+        }
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testSponsorToastCannotStealDescriptionCloseAction() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-description-toast")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openDescription()
+        let description = app.staticTexts["Test video description"]
+        XCTAssertTrue(description.waitForExistence(timeout: 3))
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Skip ")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 3))
+        XCTAssertFalse(skip.isEnabled)
+        remote.press(.select)
+        wait("exists == false", for: description)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        wait("enabled == true", for: skip)
+    }
+
+    func testBackClosesCommentsAndKeepsCurrentVideo() {
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+        remote.press(.up)
+        remote.press(.select)
+        let row = element("player.moreMenu.commentsRow")
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        for _ in 0..<8 {
+            if row.hasFocus { break }
+            remote.press(.down)
+        }
+        XCTAssertTrue(row.hasFocus)
+        remote.press(.select)
+        let comments = app.staticTexts["No comments available."]
+        XCTAssertTrue(comments.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: comments)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
     }
 
     func testBackClosesRecommendationsAndKeepsCurrentVideo() {
@@ -397,10 +473,67 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
         XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
     }
 
+    func testUpClosesRecommendationsAndKeepsCurrentVideo() {
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testRecommendationsCanCloseWhenCardsCannotAcquireNativeFocus() {
+        app.terminate()
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        XCTAssertFalse(first.hasFocus)
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
+    func testRecommendationsCanRepeatedlyOpenAndClose() {
+        for _ in 0..<4 {
+            remote.press(.down)
+            let first = relatedButton(firstRelated)
+            XCTAssertTrue(first.waitForExistence(timeout: 3))
+            remote.press(.up)
+            wait("exists == false", for: first)
+            XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        }
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 2))
+    }
+
+    func testSponsorToastCannotTrapRecommendations() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-recommendations-toast")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        remote.press(.down)
+        let first = relatedButton(firstRelated)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Skip ")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 3))
+        remote.press(.right)
+        wait("value == 'Selected'", for: relatedButton(secondRelated))
+        remote.press(.up)
+        wait("exists == false", for: first)
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+    }
+
     func testEmptyRecommendationsCanReturnToVideo() {
         app.terminate()
         app.launchArguments.removeAll { $0.hasPrefix("--uitesting-inject-related-video-ids=") }
         app.launch()
+        openTestVideo()
         XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
         remote.press(.down)
         let back = app.buttons["Back to video"]
@@ -414,6 +547,7 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
         app.terminate()
         app.launchArguments.append("--uitesting-player-ended")
         app.launch()
+        openTestVideo()
         XCTAssertTrue(app.buttons["Play now"].waitForExistence(timeout: 15))
     }
 

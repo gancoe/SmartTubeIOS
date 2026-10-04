@@ -325,25 +325,19 @@ extension PlayerView {
                         onCancel: vm.cancelAutoplay,
                         onBrowse: {
                             vm.cancelAutoplay()
-                            vm.hideControls()
-                            showRecommendations = true
+                            openRecommendations()
                         }
                     )
                 }
                 if showRecommendations {
                     TVRecommendationsPanel(
                         videos: vm.relatedVideos,
+                        selectedVideoID: highlightedRecommendationID,
                         onSelect: { selected in
-                            showRecommendations = false
-                            vm.hideControls()
-                            highlightedControl = nil
+                            closeRecommendations()
                             vm.load(video: selected)
                         },
-                        onDismiss: {
-                            showRecommendations = false
-                            vm.hideControls()
-                            highlightedControl = nil
-                        }
+                        onDismiss: closeRecommendations
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .animation(.easeOut(duration: 0.2), value: showRecommendations)
@@ -382,21 +376,24 @@ extension PlayerView {
             // focus engine to pick a child element or leaving focus on the previous screen.
             .focusScope(playerBodyNamespace)
             .prefersDefaultFocus(in: playerBodyNamespace)
-            .focusable(!isAnyOverlayVisible && !isSkipToastActive)
+            .focusable(!usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations))
             .focused($playerFocused)
             .modifier(
-                ConditionalMoveCommand(enabled: !isAnyOverlayVisible && !isSkipToastActive) { direction in
+                ConditionalMoveCommand(enabled: !usesNativeOverlayFocus && (!isSkipToastActive || showRecommendations))
+                { direction in
                     swipeLog.debug(
                         "[tv] onMoveCommand dir=\(String(describing: direction)) isTransitioning=\(isTransitioning) highlighted=\(String(describing: highlightedControl))"
                     )
+                    if showRecommendations {
+                        moveRecommendation(direction)
+                        return
+                    }
                     guard !isTransitioning else { return }
                     if direction == .down,
                         highlightedControl == nil
                             || highlightedControl.map({ !$0.isCenterRow && !$0.isTopRow }) == true
                     {
-                        highlightedControl = nil
-                        vm.hideControls()
-                        showRecommendations = true
+                        openRecommendations()
                         return
                     }
                     if let current = highlightedControl {
@@ -430,6 +427,10 @@ extension PlayerView {
                 swipeLog.notice(
                     "[tv] onTapGesture (select) — isAnyOverlayVisible=\(isAnyOverlayVisible) highlighted=\(String(describing: highlightedControl)) controlsVisible=\(vm.controlsVisible)"
                 )
+                if showRecommendations {
+                    selectRecommendation()
+                    return
+                }
                 guard !isAnyOverlayVisible && !isSkipToastActive else { return }
                 if let current = highlightedControl {
                     tvActivateControl(current)
@@ -452,9 +453,7 @@ extension PlayerView {
                     return
                 }
                 if showRecommendations {
-                    showRecommendations = false
-                    vm.hideControls()
-                    highlightedControl = nil
+                    closeRecommendations()
                     return
                 }
                 if showMoreMenu {
@@ -588,12 +587,16 @@ extension PlayerView {
                 if segment != nil {
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 50_000_000)
+                        guard !isAnyOverlayVisible else {
+                            if showRecommendations { playerFocused = true }
+                            return
+                        }
                         skipToastButtonFocused = true
                         swipeLog.notice("[tv] skipToastButtonFocused set → true")
                     }
                 } else {
                     skipToastButtonFocused = false
-                    if !isAnyOverlayVisible {
+                    if showRecommendations || !isAnyOverlayVisible {
                         playerFocused = true
                     }
                 }
@@ -621,12 +624,19 @@ extension PlayerView {
                     // Pause the controls auto-hide timer so transport controls stay
                     // visible behind the overlay while it is open.
                     vm.controlsOverlayVisibilityChanged(true)
-                    playerFocused = false
+                    skipToastButtonFocused = false
+                    playerFocused = showRecommendations
                 } else {
                     // Overlay dismissed — reclaim focus and clear nav state.
                     highlightedControl = nil
-                    playerFocused = true
+                    skipToastButtonFocused = isSkipToastActive
+                    playerFocused = !isSkipToastActive
                     vm.controlsOverlayVisibilityChanged(false)
+                }
+            }
+            .onChange(of: vm.relatedVideos.map(\.id)) { _, ids in
+                if !ids.contains(highlightedRecommendationID ?? "") {
+                    highlightedRecommendationID = ids.first
                 }
             }
             .onChange(of: vm.currentVideoId) { _, _ in

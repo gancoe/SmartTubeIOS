@@ -72,6 +72,7 @@ public struct PlayerView: View {
     @State var qualityToastMessage: String?
     #if os(tvOS)
     @State var showRecommendations = false
+    @State var highlightedRecommendationID: String?
     @FocusState var playerFocused: Bool
     /// Which playback control is visually highlighted in the overlay.
     /// nil = not in controls-nav mode; all remote input targets the video layer.
@@ -99,6 +100,7 @@ public struct PlayerView: View {
     @FocusState var sleepTimerPickerFocused: Bool
     @FocusState var captionPickerFocused: Bool
     @FocusState var audioTrackPickerFocused: Bool
+    @FocusState var descriptionCloseFocused: Bool
     @FocusState var skipToastButtonFocused: Bool
     #endif
 

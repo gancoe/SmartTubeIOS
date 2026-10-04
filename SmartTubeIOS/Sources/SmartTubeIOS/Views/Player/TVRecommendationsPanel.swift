@@ -13,12 +13,9 @@ enum TVPlayerFocus {
 
 struct TVRecommendationsPanel: View {
     let videos: [Video]
+    let selectedVideoID: String?
     let onSelect: (Video) -> Void
     let onDismiss: () -> Void
-    @FocusState private var focusedVideoID: String?
-    @FocusState private var emptyStateFocused: Bool
-    @Namespace private var focusNamespace
-
     var body: some View {
         VStack {
             Spacer()
@@ -32,8 +29,7 @@ struct TVRecommendationsPanel: View {
                     VStack(alignment: .leading, spacing: 24) {
                         Text("No recommendations available yet.").foregroundStyle(.secondary)
                         Button("Back to video", action: onDismiss)
-                            .focused($emptyStateFocused)
-                            .prefersDefaultFocus(in: focusNamespace)
+                            .focusable(false)
                     }
                     .frame(height: 240)
                 } else {
@@ -47,8 +43,8 @@ struct TVRecommendationsPanel: View {
                                         recommendation(video)
                                     }
                                     .buttonStyle(.plain)
-                                    .focused($focusedVideoID, equals: video.id)
-                                    .prefersDefaultFocus(video.id == videos.first?.id, in: focusNamespace)
+                                    .focusable(false)
+                                    .accessibilityValue(selectedVideoID == video.id ? "Selected" : "")
                                     .accessibilityIdentifier(PlayerRecommendationsAccessibility.video(video.id))
                                     .id(video.id)
                                 }
@@ -56,8 +52,7 @@ struct TVRecommendationsPanel: View {
                             .padding(12)
                         }
                         .scrollIndicators(.hidden)
-                        .defaultFocus($focusedVideoID, videos.first?.id)
-                        .onChange(of: focusedVideoID) { _, id in
+                        .onChange(of: selectedVideoID) { _, id in
                             if let id {
                                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
                             }
@@ -69,35 +64,7 @@ struct TVRecommendationsPanel: View {
             .background(.ultraThinMaterial)
             .accessibilityIdentifier(PlayerRecommendationsAccessibility.panel)
         }
-        .focusScope(focusNamespace)
         .ignoresSafeArea(edges: .bottom)
-        .onMoveCommand { direction in
-            switch direction {
-            case .up: onDismiss()
-            case .left: moveFocus(by: -1)
-            case .right: moveFocus(by: 1)
-            default: break
-            }
-        }
-        .onExitCommand(perform: onDismiss)
-        .task {
-            try? await Task.sleep(for: TVPlayerFocus.settleDelay)
-            guard !Task.isCancelled else { return }
-            if videos.isEmpty {
-                emptyStateFocused = true
-            } else {
-                focusedVideoID = videos.first?.id
-            }
-        }
-        .onChange(of: videos.map(\.id)) { _, ids in
-            if focusedVideoID == nil || !ids.contains(focusedVideoID ?? "") { focusedVideoID = ids.first }
-        }
-    }
-
-    private func moveFocus(by offset: Int) {
-        guard !videos.isEmpty else { return }
-        let current = videos.firstIndex { $0.id == focusedVideoID } ?? 0
-        focusedVideoID = videos[min(max(current + offset, 0), videos.count - 1)].id
     }
 
     private func recommendation(_ video: Video) -> some View {
@@ -118,11 +85,11 @@ struct TVRecommendationsPanel: View {
         }
         .frame(width: 330, alignment: .leading)
         .padding(10)
-        .background(focusedVideoID == video.id ? Color.white.opacity(0.15) : .clear)
+        .background(selectedVideoID == video.id ? Color.white.opacity(0.15) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
             RoundedRectangle(cornerRadius: 16)
-                .stroke(focusedVideoID == video.id ? Color.white : .clear, lineWidth: 3)
+                .stroke(selectedVideoID == video.id ? Color.white : .clear, lineWidth: 3)
         }
     }
 }

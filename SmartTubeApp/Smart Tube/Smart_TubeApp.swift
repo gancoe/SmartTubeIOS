@@ -79,7 +79,10 @@ struct SmartTubeTVApp: App {
             })
         {
             let id = String(argument.dropFirst("--uitesting-deeplink-video=".count))
-            PlayerView(video: Video(id: id, title: id, channelTitle: "Test Channel"), api: api)
+            TVPlayerUITestHost(
+                video: Video(id: id, title: id, channelTitle: "Test Channel", description: "Test video description"),
+                api: api
+            )
         } else {
             RootView()
         }
@@ -88,3 +91,33 @@ struct SmartTubeTVApp: App {
         #endif
     }
 }
+
+#if DEBUG
+private struct TVPlayerUITestHost: View {
+    let video: Video
+    let api: InnerTubeAPI
+    @State private var selectedVideo: Video?
+    @FocusState private var openFocused: Bool
+    @Namespace private var focusNamespace
+
+    var body: some View {
+        TabView {
+            NavigationStack {
+                Button("Open test video") { selectedVideo = video }
+                    .focused($openFocused)
+                    .prefersDefaultFocus(in: focusNamespace)
+                    .navigationDestination(item: $selectedVideo) { selected in
+                        PlayerView(video: selected, api: api)
+                    }
+            }
+            .focusScope(focusNamespace)
+            .defaultFocus($openFocused, true)
+            .task {
+                try? await Task.sleep(for: .milliseconds(50))
+                openFocused = true
+            }
+            .tabItem { Text("Player test") }
+        }
+    }
+}
+#endif

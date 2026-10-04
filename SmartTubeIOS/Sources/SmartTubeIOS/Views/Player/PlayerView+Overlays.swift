@@ -244,6 +244,11 @@ extension PlayerView {
                             .padding(12)
                     }
                     .buttonStyle(.plain)
+                    #if os(tvOS)
+                    .focused($descriptionCloseFocused)
+                    .prefersDefaultFocus(in: descriptionOverlayNamespace)
+                    .accessibilityLabel("Close description")
+                    #endif
                     Spacer()
                     Text("Description")
                         .fontWeight(.semibold)
@@ -279,7 +284,19 @@ extension PlayerView {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             #if os(tvOS)
             .focusScope(descriptionOverlayNamespace)
+            .defaultFocus($descriptionCloseFocused, true)
             .onExitCommand { showDescriptionSheet = false }
+            .task {
+                try? await Task.sleep(for: TVPlayerFocus.settleDelay)
+                guard !Task.isCancelled, showDescriptionSheet else { return }
+                descriptionCloseFocused = true
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--uitesting-description-toast") {
+                    vm.currentToastSegment = SponsorSegment(start: 5, end: 15, category: .sponsor)
+                }
+                #endif
+            }
+            .onDisappear { descriptionCloseFocused = false }
             #endif
             .padding(.horizontal, 8)
             .safeAreaPadding(.horizontal)
@@ -335,6 +352,9 @@ extension PlayerView {
     // MARK: - Comments loading
 
     func loadComments() {
+        #if DEBUG && os(tvOS)
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-player-ui") { return }
+        #endif
         let videoId = (vm.playerInfo?.video ?? video).id
         vm.comments.load(videoId: videoId)
     }

@@ -15,6 +15,7 @@ struct CommentsOverlayView: View {
     let onDismiss: () -> Void
     #if os(tvOS)
     var focusNamespace: Namespace.ID
+    @FocusState private var closeFocused: Bool
     #endif
     var accessibilityId: String? = nil
 
@@ -34,6 +35,11 @@ struct CommentsOverlayView: View {
                             .padding(12)
                     }
                     .buttonStyle(.plain)
+                    #if os(tvOS)
+                    .focused($closeFocused)
+                    .prefersDefaultFocus(in: focusNamespace)
+                    .accessibilityLabel("Close comments")
+                    #endif
                     Spacer()
                     Text("Comments")
                         .fontWeight(.semibold)
@@ -65,7 +71,14 @@ struct CommentsOverlayView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             #if os(tvOS)
             .focusScope(focusNamespace)
+            .defaultFocus($closeFocused, true)
             .onExitCommand { onDismiss() }
+            .task {
+                try? await Task.sleep(for: TVPlayerFocus.settleDelay)
+                guard !Task.isCancelled else { return }
+                closeFocused = true
+            }
+            .onDisappear { closeFocused = false }
             #endif
             .padding(.horizontal, 8)
             .safeAreaPadding(.horizontal)

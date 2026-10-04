@@ -84,6 +84,48 @@ extension PlayerView {
             || showDescriptionSheet || showCommentsSheet || showRecommendations || vm.pendingAutoplayVideo != nil
     }
 
+    var usesNativeOverlayFocus: Bool { isAnyOverlayVisible && !showRecommendations }
+
+    func openRecommendations() {
+        highlightedControl = nil
+        highlightedRecommendationID = vm.relatedVideos.first?.id
+        vm.hideControls()
+        showRecommendations = true
+        skipToastButtonFocused = false
+        playerFocused = true
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-recommendations-toast") {
+            vm.currentToastSegment = SponsorSegment(start: 5, end: 15, category: .sponsor)
+        }
+        #endif
+    }
+
+    func closeRecommendations() {
+        showRecommendations = false
+        highlightedRecommendationID = nil
+        highlightedControl = nil
+        vm.hideControls()
+        skipToastButtonFocused = isSkipToastActive
+        playerFocused = !isSkipToastActive
+    }
+
+    func moveRecommendation(_ direction: MoveCommandDirection) {
+        if direction == .up {
+            closeRecommendations()
+            return
+        }
+        guard direction == .left || direction == .right, !vm.relatedVideos.isEmpty else { return }
+        let index = vm.relatedVideos.firstIndex { $0.id == highlightedRecommendationID } ?? 0
+        let offset = direction == .left ? -1 : 1
+        highlightedRecommendationID = vm.relatedVideos[min(max(index + offset, 0), vm.relatedVideos.count - 1)].id
+    }
+
+    func selectRecommendation() {
+        let selected = vm.relatedVideos.first { $0.id == highlightedRecommendationID } ?? vm.relatedVideos.first
+        closeRecommendations()
+        if let selected { vm.load(video: selected) }
+    }
+
     /// True while a SponsorBlock skip toast is visible.
     /// Kept separate from `isAnyOverlayVisible` so the `onChange(of: isAnyOverlayVisible)`
     /// handler's `vm.cancelControlsHide()` call is not triggered by the transient toast.

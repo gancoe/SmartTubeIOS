@@ -750,6 +750,7 @@ extension PlayerView {
                         }
                     }
                     .focused($skipToastButtonFocused)
+                    .disabled(isAnyOverlayVisible)
                     #endif
                     .padding()
                     .transition(.move(edge: .trailing))

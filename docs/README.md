@@ -26,6 +26,7 @@ undiscoverable until it is. Keep this under 100 lines; anything that doesn't fit
 | [how-to/run-tests.md](how-to/run-tests.md) | How to run tests, target simulator, one-time setup | current | 2026-10-04 |
 | [how-to/native-tvos.md](how-to/native-tvos.md) | Personal native Apple TV build, focused checks and hardware acceptance | current | 2026-10-04 |
 | [reviews/2026-10-04-native-player-interaction.md](reviews/2026-10-04-native-player-interaction.md) | Autoplay, recommendations, controls timeout and screensaver review | current | 2026-10-04 |
+| [reviews/2026-10-04-player-panel-focus.md](reviews/2026-10-04-player-panel-focus.md) | Recommendations, description and comments focus regressions; measured 4K stream limitation | current | 2026-10-04 |
 | [reviews/2026-10-04-native-playback.md](reviews/2026-10-04-native-playback.md) | Playback review, regression evidence and remaining validation gaps | current | 2026-10-04 |
 | [reviews/2026-10-04-playback-freeze.md](reviews/2026-10-04-playback-freeze.md) | Physical freeze evidence and diagnostic build scope | current | 2026-10-04 |
 | [examples/native-tvos-workflow.yml](examples/native-tvos-workflow.yml) | Optional Actions build template; not enabled | unverified | 2026-10-04 |
