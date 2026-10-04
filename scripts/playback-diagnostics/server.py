@@ -54,6 +54,12 @@ OPTIONAL_NULLABLE_FIELDS = {
     "error_timestamp",
     "error_comment",
     "error_resource",
+    "capture_id",
+    "item_generation_id",
+    "capture_state",
+    "diagnostics_dropped_events",
+    "native_segment",
+    "native_variant_switch",
 }
 ALL_FIELDS = REQUIRED_FIELDS | OPTIONAL_NULLABLE_FIELDS
 FIELD_ORDER = (
@@ -84,6 +90,12 @@ FIELD_ORDER = (
     "error_timestamp",
     "error_comment",
     "error_resource",
+    "capture_id",
+    "item_generation_id",
+    "capture_state",
+    "diagnostics_dropped_events",
+    "native_segment",
+    "native_variant_switch",
 )
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -175,6 +187,174 @@ def _parse_timestamp(value: Any, field: str) -> dt.datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise PayloadError(f"invalid {field}")
     return parsed
+
+
+def _integer(value: Any, minimum: int, maximum: int | None = None) -> None:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < minimum
+        or (maximum is not None and value > maximum)
+    ):
+        raise PayloadError("invalid native metric integer")
+
+
+def _metric_object(raw: Any, required: set[str], nullable: set[str]) -> dict:
+    if (
+        not isinstance(raw, dict)
+        or set(raw) - required - nullable
+        or required - set(raw)
+    ):
+        raise PayloadError("invalid native metric fields")
+    return {**{field: None for field in nullable}, **raw}
+
+
+def _native_transaction(raw: Any) -> dict:
+    value = _metric_object(
+        raw,
+        {"index", "response_state", "reused_connection"},
+        {
+            "http_status",
+            "network_protocol",
+            "request_to_response_seconds",
+            "request_to_completion_seconds",
+        },
+    )
+    _integer(value["index"], 0)
+    if not isinstance(value["response_state"], str) or value["response_state"] not in {
+        "received",
+        "response_absent",
+    }:
+        raise PayloadError("invalid response state")
+    if not isinstance(value["reused_connection"], bool):
+        raise PayloadError("invalid connection flag")
+    if value["http_status"] is not None:
+        _integer(value["http_status"], 100, 599)
+        if value["response_state"] != "received":
+            raise PayloadError("status without response")
+    if value["network_protocol"] is not None and (
+        not isinstance(value["network_protocol"], str)
+        or value["network_protocol"]
+        not in {
+            None,
+            "h3",
+            "h2",
+            "http/1.1",
+            "http/1.0",
+            "other",
+        }
+    ):
+        raise PayloadError("invalid protocol")
+    for field in ("request_to_response_seconds", "request_to_completion_seconds"):
+        _optional_number(value, field, minimum=0)
+    if (
+        value["response_state"] == "response_absent"
+        and value["request_to_response_seconds"] is not None
+    ):
+        raise PayloadError("timing without response")
+    return value
+
+
+def _native_segment(raw: Any) -> dict:
+    value = _metric_object(
+        raw,
+        {
+            "media_type",
+            "is_map",
+            "resource_available",
+            "transactions_available",
+            "transactions",
+        },
+        {
+            "itag",
+            "segment_duration_seconds",
+            "resource_request_duration_seconds",
+            "read_from_cache",
+            "error_domain",
+            "error_code",
+        },
+    )
+    if not isinstance(value["media_type"], str) or value["media_type"] not in {
+        "video",
+        "audio",
+        "muxed",
+        "unknown",
+    }:
+        raise PayloadError("invalid media type")
+    for field in ("is_map", "resource_available", "transactions_available"):
+        if not isinstance(value[field], bool):
+            raise PayloadError("invalid metric availability")
+    if value["read_from_cache"] is not None and not isinstance(
+        value["read_from_cache"], bool
+    ):
+        raise PayloadError("invalid cache flag")
+    if value["itag"] is not None:
+        _integer(value["itag"], 1, 99999)
+    _optional_number(value, "segment_duration_seconds", minimum=0)
+    _optional_number(value, "resource_request_duration_seconds", minimum=0)
+    if value["error_domain"] is not None and (
+        not isinstance(value["error_domain"], str)
+        or value["error_domain"]
+        not in {
+            None,
+            "CoreMediaErrorDomain",
+            "AVFoundationErrorDomain",
+            "NSURLErrorDomain",
+            "NSOSStatusErrorDomain",
+            "other",
+        }
+    ):
+        raise PayloadError("invalid metric error domain")
+    if value["error_code"] is not None:
+        _integer(value["error_code"], -(2**31), 2**31 - 1)
+    if not isinstance(value["transactions"], list) or len(value["transactions"]) > 8:
+        raise PayloadError("invalid transaction count")
+    if (
+        not value["resource_available"]
+        and value["transactions_available"]
+        or not value["transactions_available"]
+        and value["transactions"]
+    ):
+        raise PayloadError("inconsistent availability")
+    if not value["resource_available"] and any(
+        value[field] is not None
+        for field in (
+            "read_from_cache",
+            "error_domain",
+            "error_code",
+            "resource_request_duration_seconds",
+        )
+    ):
+        raise PayloadError("fields without resource event")
+    value["transactions"] = [
+        _native_transaction(item) for item in value["transactions"]
+    ]
+    return value
+
+
+def _native_variant(raw: Any) -> dict:
+    value = _metric_object(
+        raw,
+        {"succeeded"},
+        {
+            "from_width",
+            "from_height",
+            "to_width",
+            "to_height",
+            "from_bitrate_bps",
+            "to_bitrate_bps",
+        },
+    )
+    if not isinstance(value["succeeded"], bool):
+        raise PayloadError("invalid variant success")
+    for field in ("from_width", "from_height", "to_width", "to_height"):
+        if value[field] is not None:
+            _integer(value[field], 1, 20000)
+    for field in ("from_bitrate_bps", "to_bitrate_bps"):
+        _optional_number(value, field, minimum=0)
+        if value[field] is not None and value[field] <= 0:
+            raise PayloadError("invalid variant bitrate")
+    return value
 
 
 def validate_event(raw: Any) -> dict[str, Any]:
@@ -297,6 +477,44 @@ def validate_event(raw: Any) -> dict[str, Any]:
         ) or not RESOURCE_SUMMARY.fullmatch(event["error_resource"]):
             raise PayloadError("invalid error resource")
 
+    for field in ("capture_id", "item_generation_id"):
+        if event.get(field) is not None:
+            try:
+                identifier = uuid.UUID(event[field])
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise PayloadError("invalid capture identifier") from exc
+            if str(identifier) != event[field].lower():
+                raise PayloadError("invalid capture identifier")
+            event[field] = str(identifier)
+    if event.get("capture_state") is not None and (
+        not isinstance(event["capture_state"], str)
+        or event["capture_state"]
+        not in {
+            None,
+            "active",
+            "recovery",
+            "ended",
+            "unsupported",
+        }
+    ):
+        raise PayloadError("invalid capture state")
+    if event.get("diagnostics_dropped_events") is not None:
+        _integer(event["diagnostics_dropped_events"], 0)
+    if event.get("native_segment") is not None:
+        event["native_segment"] = _native_segment(event["native_segment"])
+    if event.get("native_variant_switch") is not None:
+        event["native_variant_switch"] = _native_variant(event["native_variant_switch"])
+    if (
+        event.get("native_segment") is not None
+        or event.get("native_variant_switch") is not None
+        or event.get("capture_state") is not None
+    ) and event.get("capture_id") is None:
+        raise PayloadError("capture context missing")
+    if (
+        event.get("native_segment") is not None
+        or event.get("native_variant_switch") is not None
+    ) and event.get("item_generation_id") is None:
+        raise PayloadError("item context missing")
     for field in OPTIONAL_NULLABLE_FIELDS:
         event.setdefault(field, None)
     return {field: event[field] for field in FIELD_ORDER}

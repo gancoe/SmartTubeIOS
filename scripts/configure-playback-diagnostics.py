@@ -5,14 +5,23 @@ import pathlib
 import plistlib
 import sys
 import urllib.parse
+import uuid
 
 
 def configure(config_path, app_path):
     config = json.loads(pathlib.Path(config_path).read_text())
-    if set(config) != {"endpoint", "token"}:
+    if set(config) not in ({"endpoint", "token"}, {"endpoint", "token", "capture_id"}):
         raise ValueError("invalid diagnostics configuration keys")
     endpoint = urllib.parse.urlsplit(config["endpoint"])
     token = config["token"]
+    capture_id = config.get("capture_id")
+    if capture_id is not None:
+        try:
+            parsed_capture_id = uuid.UUID(capture_id)
+        except (ValueError, AttributeError, TypeError):
+            raise ValueError("invalid diagnostics capture id")
+        if str(parsed_capture_id) != capture_id.lower():
+            raise ValueError("invalid diagnostics capture id")
     if (
         endpoint.scheme not in {"http", "https"}
         or not endpoint.hostname

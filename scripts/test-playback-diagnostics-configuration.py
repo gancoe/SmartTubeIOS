@@ -62,9 +62,50 @@ class ConfigurationTests(unittest.TestCase):
             root = pathlib.Path(directory)
             source = root / "config.json"
             for whitespace in [" ", "\t", "\n", "\u2003"]:
-                source.write_text(json.dumps({"endpoint": "http://127.0.0.1/v1/events", "token": "a" * 32 + whitespace}))
+                source.write_text(
+                    json.dumps(
+                        {
+                            "endpoint": "http://127.0.0.1/v1/events",
+                            "token": "a" * 32 + whitespace,
+                        }
+                    )
+                )
                 with self.assertRaises(ValueError):
                     module.configure(source, root / "Missing.app")
+
+    def test_accepts_canonical_capture_id_and_preserves_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            app = root / "App.app"
+            app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({}))
+            config = {
+                "endpoint": "https://example.com/v1/events",
+                "token": "test-only-value-" * 4,
+                "capture_id": "123e4567-e89b-12d3-a456-426614174000",
+            }
+            source = root / "config.json"
+            source.write_text(json.dumps(config))
+            module.configure(source, app)
+            self.assertEqual(
+                json.loads((app / "PlaybackDiagnostics.json").read_text()), config
+            )
+
+    def test_rejects_noncanonical_capture_id_before_touching_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "config.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "endpoint": "https://example.com/v1/events",
+                        "token": "test-only-value-" * 4,
+                        "capture_id": "not-a-uuid",
+                    }
+                )
+            )
+            with self.assertRaises(ValueError):
+                module.configure(source, root / "Missing.app")
 
 
 if __name__ == "__main__":

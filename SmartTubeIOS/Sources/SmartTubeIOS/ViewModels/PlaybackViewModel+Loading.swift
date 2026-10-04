@@ -14,6 +14,8 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 extension PlaybackViewModel {
 
     public func load(video: Video) {
+        cancelPlaybackDiagnosticsNativeMetrics()
+        playbackDiagnosticsMetricGate.resume()
         playerLog.notice(
             "[load] load() called — id=\(video.id) currentVideo=\(self.currentVideo?.id ?? "nil") isLoading=\(self.isLoading) player.item=\(self.player.currentItem != nil)"
         )
@@ -1163,6 +1165,7 @@ extension PlaybackViewModel {
     // MARK: - Cleanup
 
     public func stop() {
+        suspendPlaybackDiagnostics()
         playerLog.notice(
             "[stop] stop() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s isLoading=\(self.isLoading)"
         )
