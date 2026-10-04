@@ -10,6 +10,7 @@ import SwiftUI
 
 struct StatsForNerdsOverlay: View {
     let snapshot: StatsForNerdsSnapshot
+    let refresh: @MainActor () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -24,12 +25,22 @@ struct StatsForNerdsOverlay: View {
                     "Selected", snapshot.pendingQualityLabel,
                     valueId: "stats.selectedQuality")
             }
-            row("Codec", snapshot.codec)
+            row("Codec metadata", snapshot.codec)
             row("Nominal Bitrate", snapshot.nominalBitrate)
-            row("Connection Speed", snapshot.observedBitrate)
+            row("Download sample", snapshot.observedBitrate)
             row("Dropped Frames", "\(snapshot.droppedFrames)")
             row("Stalls", "\(snapshot.stalls)")
             Divider().background(.white.opacity(0.2)).padding(.vertical, 2)
+            row(
+                "Playback",
+                "\(snapshot.playerTimeControlStatus) · \(rateLabel) · wait=\(snapshot.waitingReason)"
+            )
+            row(
+                "Buffer",
+                "\(bufferAhead) ahead · empty=\(flagLabel(snapshot.playbackBufferEmpty)) · keepUp=\(flagLabel(snapshot.playbackLikelyToKeepUp))"
+            )
+            row("Item", snapshot.itemStatus)
+            row("Errors", errorSummary)
             row("TTP (low-q)", snapshot.timeToPlayMs > 0 ? "\(snapshot.timeToPlayMs) ms" : "—")
             row("TTP (hi-q)", snapshot.timeToHighQualityMs > 0 ? "\(snapshot.timeToHighQualityMs) ms" : "—")
             row("Stream Type", snapshot.streamType.isEmpty ? "—" : snapshot.streamType)
@@ -50,6 +61,42 @@ struct StatsForNerdsOverlay: View {
         .padding(.top, 30)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
+        .task { @MainActor in
+            while !Task.isCancelled {
+                refresh()
+                do {
+                    try await Task.sleep(for: PlaybackViewModel.statsForNerdsRefreshInterval)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private var bufferAhead: String {
+        guard let seconds = snapshot.bufferAheadSeconds else { return "—" }
+        return String(format: "%.1fs", seconds)
+    }
+
+    private var rateLabel: String {
+        guard let rate = snapshot.playerRate else { return "—" }
+        return String(format: "%.2fx", rate)
+    }
+
+    private func flagLabel(_ value: Bool?) -> String {
+        guard let value else { return "—" }
+        return value ? "yes" : "no"
+    }
+
+    private var errorSummary: String {
+        let result = [
+            snapshot.itemError == "—" ? nil : "item=\(snapshot.itemError)",
+            snapshot.playerError == "—" ? nil : "player=\(snapshot.playerError)",
+            snapshot.errorLog == "—" ? nil : "log=\(snapshot.errorLog)",
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+        return result.isEmpty ? "—" : result
     }
 
     private func row(_ key: String, _ value: String) -> some View {

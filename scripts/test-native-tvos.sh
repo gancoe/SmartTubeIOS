@@ -5,7 +5,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 mkdir -p tmp
 report_dir="$(mktemp -d "$repo_root/tmp/native-tvos-tests.XXXXXX")"
-unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests)/'
+unit_filter='(^|\.)(SponsorBlockSkipManagerTests|SponsorBlockDecisionEngineTests|PlaybackSeekingTests|PlaybackDiagnosticsTests|WatchHistoryAuthTokenTests|WatchtimeTrackerOverlapTests|CaptionsManagerTests|PlaybackQualityTests|SettingsQualityPersistenceTests)/'
 
 just --command swift test --package-path SmartTubeIOS --filter "$unit_filter" 2>&1 | tee "$report_dir/unit.log"
 just --command python3 - "$report_dir/unit.log" <<'PY'

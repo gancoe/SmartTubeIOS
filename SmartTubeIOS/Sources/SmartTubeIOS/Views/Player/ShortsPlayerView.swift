@@ -211,7 +211,7 @@ public struct ShortsPlayerView: View {
 
                 // Stats for Nerds overlay (toggled by two-finger tap)
                 if vm.statsForNerdsVisible {
-                    StatsForNerdsOverlay(snapshot: vm.statsSnapshot)
+                    StatsForNerdsOverlay(snapshot: vm.statsSnapshot, refresh: vm.updateStatsSnapshot)
                         .transition(.opacity)
                         .animation(.easeInOut(duration: 0.2), value: vm.statsForNerdsVisible)
                 }

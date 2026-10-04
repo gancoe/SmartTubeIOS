@@ -8,6 +8,8 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 
 extension PlaybackViewModel {
 
+    static let statsForNerdsRefreshInterval: Duration = .seconds(1)
+
     public func toggleStatsForNerds() {
         statsForNerdsVisible.toggle()
         if statsForNerdsVisible { updateStatsSnapshot() }
@@ -36,8 +38,8 @@ extension PlaybackViewModel {
 
         let fps = selectedFormat?.fps ?? 0
 
-        // Codec: reflect the stream type in the stats overlay.
-        // All quality is delivered via HLS; use the selected format's mimeType when available.
+        // Codec: retain the stream metadata label. It does not identify the format actually
+        // decoded by AVPlayer.
         let codec: String
         if let fmt = selectedFormat {
             codec = Self.extractCodec(from: fmt.mimeType)
@@ -88,7 +90,7 @@ extension PlaybackViewModel {
             playerLog.debug("[stats] snapshot — res=\(res) codec=\(codec) source=\(resSource)")
         }
 
-        statsSnapshot = StatsForNerdsSnapshot(
+        let snapshot = StatsForNerdsSnapshot(
             videoId: videoId,
             displayResolution: res,
             fps: fps,
@@ -110,6 +112,85 @@ extension PlaybackViewModel {
             } ?? "—",
             streamType: lastSuccessfulStreamType
         )
+        statsSnapshot = playbackDiagnostics(snapshot: snapshot, item: item)
+    }
+
+    private func playbackDiagnostics(snapshot: StatsForNerdsSnapshot, item: AVPlayerItem) -> StatsForNerdsSnapshot {
+        var snapshot = snapshot
+        snapshot.playerTimeControlStatus = Self.timeControlStatusLabel(player.timeControlStatus)
+        snapshot.playerRate = player.rate
+        snapshot.waitingReason = Self.waitingReasonLabel(player.reasonForWaitingToPlay)
+        snapshot.itemStatus = Self.itemStatusLabel(item.status)
+        snapshot.bufferAheadSeconds = Self.contiguousBufferAheadSeconds(for: item)
+        snapshot.playbackBufferEmpty = item.isPlaybackBufferEmpty
+        snapshot.playbackLikelyToKeepUp = item.isPlaybackLikelyToKeepUp
+        snapshot.itemError = Self.errorSummary(item.error)
+        snapshot.playerError = Self.errorSummary(player.error)
+        snapshot.errorLog = Self.errorLogSummary(item.errorLog()?.events.last)
+        return snapshot
+    }
+
+    static func timeControlStatusLabel(_ status: AVPlayer.TimeControlStatus) -> String {
+        switch status {
+        case .playing: return "playing"
+        case .waitingToPlayAtSpecifiedRate: return "waiting"
+        case .paused: return "paused"
+        default: return "unknown"
+        }
+    }
+
+    static func waitingReasonLabel(_ reason: AVPlayer.WaitingReason?) -> String {
+        guard let reason else { return "—" }
+        switch reason {
+        case .toMinimizeStalls: return "toMinimizeStalls"
+        case .evaluatingBufferingRate: return "evaluatingBufferingRate"
+        case .noItemToPlay: return "noItemToPlay"
+        default: return "unknown"
+        }
+    }
+
+    static func itemStatusLabel(_ status: AVPlayerItem.Status) -> String {
+        switch status {
+        case .unknown: return "unknown"
+        case .readyToPlay: return "ready"
+        case .failed: return "failed"
+        @unknown default: return "unknown"
+        }
+    }
+
+    static func errorSummary(_ error: Error?) -> String {
+        guard let error else { return "—" }
+        let nsError = error as NSError
+        return "\(nsError.domain)#\(nsError.code)"
+    }
+
+    static func errorLogSummary(_ event: AVPlayerItemErrorLogEvent?) -> String {
+        guard let event else { return "—" }
+        return "\(event.errorDomain)#\(event.errorStatusCode)"
+    }
+
+    static func contiguousBufferAheadSeconds(for item: AVPlayerItem) -> Double? {
+        let currentTime = CMTimeGetSeconds(item.currentTime())
+        guard currentTime.isFinite, currentTime >= 0 else { return nil }
+
+        let ranges = item.loadedTimeRanges.compactMap { value -> (start: Double, end: Double)? in
+            let range = value.timeRangeValue
+            let start = CMTimeGetSeconds(range.start)
+            let duration = CMTimeGetSeconds(range.duration)
+            guard start.isFinite, duration.isFinite, start >= 0, duration > 0 else { return nil }
+            let end = start + duration
+            guard end.isFinite, end > start else { return nil }
+            return (start, end)
+        }
+        .sorted { $0.start < $1.start }
+
+        var end = currentTime
+        for range in ranges {
+            guard range.end > end else { continue }
+            guard range.start <= end else { break }
+            end = range.end
+        }
+        return end > currentTime ? end - currentTime : 0
     }
 
     static func extractCodec(from mimeType: String) -> String {
@@ -166,6 +247,16 @@ public struct StatsForNerdsSnapshot: Sendable {
     public var streamURL: String
     /// Which loading path produced the current stream (e.g. "primaryHLS", "webView/HLS").
     public var streamType: String
+    public var playerTimeControlStatus: String = "unknown"
+    public var playerRate: Float?
+    public var waitingReason: String = "—"
+    public var itemStatus: String = "unknown"
+    public var bufferAheadSeconds: Double?
+    public var playbackBufferEmpty: Bool?
+    public var playbackLikelyToKeepUp: Bool?
+    public var itemError: String = "—"
+    public var playerError: String = "—"
+    public var errorLog: String = "—"
 
     public static let empty = StatsForNerdsSnapshot(
         videoId: "",
@@ -182,6 +273,16 @@ public struct StatsForNerdsSnapshot: Sendable {
         timeToHighQualityMs: 0,
         cacheStatus: "",
         streamURL: "",
-        streamType: ""
+        streamType: "",
+        playerTimeControlStatus: "unknown",
+        playerRate: nil,
+        waitingReason: "—",
+        itemStatus: "unknown",
+        bufferAheadSeconds: nil,
+        playbackBufferEmpty: nil,
+        playbackLikelyToKeepUp: nil,
+        itemError: "—",
+        playerError: "—",
+        errorLog: "—"
     )
 }
