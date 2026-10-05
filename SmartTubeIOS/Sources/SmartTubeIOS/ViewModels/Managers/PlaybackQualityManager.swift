@@ -100,6 +100,8 @@ final class PlaybackQualityManager {
     var hasAppliedH264Cap: Bool = false
     @ObservationIgnored var qualityTask: Task<Void, Never>? = nil
     @ObservationIgnored private var itemObserverTask: Task<Void, Never>? = nil
+    @ObservationIgnored private var hlsForwardBufferTask: Task<Void, Never>?
+    @ObservationIgnored private var lastForwardBufferRampWasHLS = false
     #if canImport(WebKit)
     /// Keeps the YTHLSProxyLoader alive for the duration of WebView-HLS playback.
     @ObservationIgnored var webHLSProxyLoader: YTHLSProxyLoader? = nil
@@ -146,11 +148,13 @@ final class PlaybackQualityManager {
         hlsPlaybackUserAgent = InnerTubeClients.Web.userAgent
         hlsPlaybackMaximumHeight = nil
         hlsAllowedVideoCodecs = nil
+        lastForwardBufferRampWasHLS = false
         nativeHLSProxyLoader = nil
         isMuxedFallback = false
         hasAppliedH264Cap = false
         qualityTask?.cancel()
         qualityTask = nil
+        cancelHLSForwardBufferRamp()
         itemObserverTask?.cancel()
         itemObserverTask = nil
         #if canImport(WebKit)
@@ -162,6 +166,7 @@ final class PlaybackQualityManager {
     func cancel() {
         qualityTask?.cancel()
         qualityTask = nil
+        cancelHLSForwardBufferRamp()
         hasAppliedH264Cap = false
         itemObserverTask?.cancel()
         itemObserverTask = nil
@@ -261,10 +266,7 @@ final class PlaybackQualityManager {
         item.audioTimePitchAlgorithm = .spectral
         // Reduce startup latency after a quality switch: play as soon as 2 s is buffered.
         item.preferredForwardBufferDuration = 2.0
-        Task { [weak item] in
-            try? await Task.sleep(for: .seconds(5))
-            item?.preferredForwardBufferDuration = 0
-        }
+        rampHLSForwardBuffer(on: item)
         let requestedCap = quality.maxHeight
         let effectiveCap =
             hlsPlaybackMaximumHeight.map { min(requestedCap ?? $0, $0) }
@@ -600,6 +602,48 @@ final class PlaybackQualityManager {
 
     func hlsPeakBitRate(for height: Int) -> Double {
         allowsNativeVP9 ? 0 : peakBitRate(for: height)
+    }
+
+    func cancelHLSForwardBufferRamp() {
+        hlsForwardBufferTask?.cancel()
+        hlsForwardBufferTask = nil
+    }
+
+    @discardableResult
+    func rearmHLSForwardBuffer(
+        on item: AVPlayerItem,
+        wait: @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .seconds(5))
+        }
+    ) -> Task<Void, Never> {
+        rampHLSForwardBuffer(on: item, isHLS: lastForwardBufferRampWasHLS, wait: wait)
+    }
+
+    @discardableResult
+    func rampHLSForwardBuffer(
+        on item: AVPlayerItem,
+        isHLS: Bool = true,
+        wait: @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .seconds(5))
+        }
+    ) -> Task<Void, Never> {
+        cancelHLSForwardBufferRamp()
+        lastForwardBufferRampWasHLS = isHLS
+        let target =
+            isHLS && allowsNativeVP9 && !hasAppliedH264Cap
+            ? PlaybackTuning.nativeHLSForwardBufferSeconds
+            : 0
+        let task = Task { [weak item] in
+            do {
+                try await wait()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            item?.preferredForwardBufferDuration = target
+        }
+        hlsForwardBufferTask = task
+        return task
     }
 
     func reloadHLSItemH264Capped(seekTo time: TimeInterval) async {

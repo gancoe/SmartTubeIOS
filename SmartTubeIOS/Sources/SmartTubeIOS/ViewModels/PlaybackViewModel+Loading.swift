@@ -78,6 +78,7 @@ extension PlaybackViewModel {
             wkHLSEarlyTaskVideoId = nil
             #endif
             currentVideo = video
+            qualityManager.rearmHLSForwardBuffer(on: parkedItem)
             setupRateObserver()
             isLoading = false
             isPlaying = false
@@ -1165,6 +1166,7 @@ extension PlaybackViewModel {
     // MARK: - Cleanup
 
     public func stop() {
+        qualityManager.cancelHLSForwardBufferRamp()
         suspendPlaybackDiagnostics()
         playerLog.notice(
             "[stop] stop() called — currentVideo=\(self.currentVideo?.id ?? "nil") currentTime=\(Int(self.currentTime))s isLoading=\(self.isLoading)"

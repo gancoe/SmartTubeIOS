@@ -1212,13 +1212,8 @@ extension PlaybackViewModel {
             item = AVPlayerItem(asset: AVURLAsset(url: effectiveURL, options: uaOpts))
         }
         item.audioTimePitchAlgorithm = .spectral
-        // Reduce startup latency: begin playback after 0.5 s of buffered content
-        // (matches the primary HLS path). Reset to system default after readyToPlay.
+        // Reduce startup latency: begin playback after 0.5 s of buffered content.
         item.preferredForwardBufferDuration = 0.5
-        Task { [weak item] in
-            try? await Task.sleep(for: .seconds(5))
-            item?.preferredForwardBufferDuration = 0
-        }
         if applyHLSHints {
             if let maxH = hlsPolicy.cappedHeight(requested: effectiveQuality.maxHeight) {
                 item.preferredMaximumResolution = CGSize(width: CGFloat(maxH) * 4, height: CGFloat(maxH))
@@ -1242,6 +1237,7 @@ extension PlaybackViewModel {
             )
             return false
         }
+        qualityManager.rampHLSForwardBuffer(on: item, isHLS: applyHLSHints)
         player.replaceCurrentItem(with: item)
         itemObserverTask?.cancel()
 

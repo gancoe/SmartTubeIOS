@@ -4,8 +4,40 @@ import Testing
 
 @testable import SmartTubeIOS
 
+private actor RampWaitGate {
+    private var started = false
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Error>?
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { continuation in
+            startedWaiters.append(continuation)
+        }
+    }
+
+    func wait() async throws {
+        started = true
+        let waiters = startedWaiters
+        startedWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        try await withCheckedThrowingContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
 @Suite("Native 4K HLS policy")
 struct Native4KHLSPlaybackPolicyTests {
+    private func emptyItem() -> AVPlayerItem {
+        AVPlayerItem(url: URL(fileURLWithPath: "/dev/null"))
+    }
+
     @Test("native 4K route admits VP9 SDR through 2160p")
     func admitsVP9SDR() {
         let policy = HLSPlaybackPolicy.resolve(label: "VisionOS/Native4K/HLS", isHLS: true)
@@ -87,5 +119,195 @@ struct Native4KHLSPlaybackPolicyTests {
         #expect(!manager.allowsNativeVP9)
         #expect(manager.hlsPeakBitRate(for: 1080) == 15_000_000)
         #expect(manager.hlsPeakBitRate(for: 2160) == 45_000_000)
+    }
+
+    @Test("native VP9 HLS ramps to the steady 100 second buffer")
+    @MainActor
+    func nativeHLSRampAppliesSteadyBuffer() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let task = manager.rampHLSForwardBuffer(on: item, wait: {})
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == PlaybackTuning.nativeHLSForwardBufferSeconds)
+    }
+
+    @Test("H264 HLS ramps to the system default")
+    @MainActor
+    func h264HLSRampUsesSystemDefault() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(userAgent: "test", maximumHeight: 1080, allowedVideoCodecs: ["avc1"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let task = manager.rampHLSForwardBuffer(on: item, wait: {})
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == 0)
+    }
+
+    @Test("an H264-capped native route ramps to the system default")
+    @MainActor
+    func h264CapDisablesNativeSteadyBuffer() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        manager.hasAppliedH264Cap = true
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let task = manager.rampHLSForwardBuffer(on: item, wait: {})
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == 0)
+    }
+
+    @Test("non-HLS streams ramp to the system default")
+    @MainActor
+    func nonHLSRampUsesSystemDefault() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let task = manager.rampHLSForwardBuffer(on: item, isHLS: false, wait: {})
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == 0)
+    }
+
+    @Test("rearming a parked non-HLS item keeps the system default")
+    @MainActor
+    func nonHLSRearmUsesSystemDefault() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let initialTask = manager.rampHLSForwardBuffer(on: item, isHLS: false, wait: {})
+        await initialTask.value
+        let rearmTask = manager.rearmHLSForwardBuffer(on: item, wait: {})
+        await rearmTask.value
+
+        #expect(item.preferredForwardBufferDuration == 0)
+    }
+
+    @Test("a throwing wait leaves the startup buffer unchanged")
+    @MainActor
+    func throwingWaitDoesNotApplyBuffer() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+
+        let task = manager.rampHLSForwardBuffer(on: item, wait: { throw CancellationError() })
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == 2)
+    }
+
+    @Test("native target is captured before eligibility changes")
+    @MainActor
+    func nativeRampCapturesTargetBeforeEligibilityChange() async {
+        let player = AVPlayer()
+        let manager = PlaybackQualityManager(player: player)
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let oldItem = emptyItem()
+        oldItem.preferredForwardBufferDuration = 2
+        let newItem = emptyItem()
+        newItem.preferredForwardBufferDuration = 2
+        let gate = RampWaitGate()
+        player.replaceCurrentItem(with: oldItem)
+
+        let oldTask = manager.rampHLSForwardBuffer(on: oldItem, wait: { try await gate.wait() })
+        await gate.waitUntilStarted()
+        manager.configureHLSPlayback(userAgent: "test", maximumHeight: 1080, allowedVideoCodecs: ["avc1"])
+        player.replaceCurrentItem(with: newItem)
+        await gate.release()
+        await oldTask.value
+        let newTask = manager.rampHLSForwardBuffer(on: newItem, wait: {})
+        await newTask.value
+
+        #expect(oldItem.preferredForwardBufferDuration == PlaybackTuning.nativeHLSForwardBufferSeconds)
+        #expect(newItem.preferredForwardBufferDuration == 0)
+    }
+
+    @Test("manager cancellation cannot apply a native ramp after replacement")
+    @MainActor
+    func cancellationDoesNotApplyToOldItem() async {
+        let player = AVPlayer()
+        let manager = PlaybackQualityManager(player: player)
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let oldItem = emptyItem()
+        oldItem.preferredForwardBufferDuration = 2
+        let newItem = emptyItem()
+        newItem.preferredForwardBufferDuration = 2
+        let gate = RampWaitGate()
+        player.replaceCurrentItem(with: oldItem)
+
+        let task = manager.rampHLSForwardBuffer(on: oldItem, wait: { try await gate.wait() })
+        await gate.waitUntilStarted()
+        player.replaceCurrentItem(with: newItem)
+        manager.cancel()
+        await gate.release()
+        await task.value
+
+        #expect(oldItem.preferredForwardBufferDuration == 2)
+        #expect(newItem.preferredForwardBufferDuration == 2)
+    }
+
+    @Test("a newer ramp cancels the older item ramp")
+    @MainActor
+    func newerRampCancelsOlderRamp() async {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let oldItem = emptyItem()
+        oldItem.preferredForwardBufferDuration = 2
+        let newItem = emptyItem()
+        newItem.preferredForwardBufferDuration = 2
+        let oldGate = RampWaitGate()
+        let newGate = RampWaitGate()
+
+        let oldTask = manager.rampHLSForwardBuffer(on: oldItem, wait: { try await oldGate.wait() })
+        await oldGate.waitUntilStarted()
+        let newTask = manager.rampHLSForwardBuffer(on: newItem, wait: { try await newGate.wait() })
+        await newGate.waitUntilStarted()
+        await oldGate.release()
+        await oldTask.value
+        #expect(oldItem.preferredForwardBufferDuration == 2)
+
+        await newGate.release()
+        await newTask.value
+        #expect(newItem.preferredForwardBufferDuration == PlaybackTuning.nativeHLSForwardBufferSeconds)
+    }
+
+    @Test("stopping the view model cancels its native ramp")
+    @MainActor
+    func viewModelStopCancelsNativeRamp() async {
+        let player = AVPlayer()
+        let viewModel = PlaybackViewModel(player: player)
+        viewModel.qualityManager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        let item = emptyItem()
+        item.preferredForwardBufferDuration = 2
+        let gate = RampWaitGate()
+
+        let task = viewModel.qualityManager.rampHLSForwardBuffer(on: item, wait: { try await gate.wait() })
+        await gate.waitUntilStarted()
+        viewModel.stop()
+        await gate.release()
+        await task.value
+
+        #expect(item.preferredForwardBufferDuration == 2)
     }
 }

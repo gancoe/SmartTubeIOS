@@ -6,6 +6,7 @@ private let playerLog = CrashlyticsLogger(category: "Player")
 
 enum PlaybackTuning {
     static let autoplayCountdownSeconds = 5
+    static let nativeHLSForwardBufferSeconds: TimeInterval = 100
 }
 
 // MARK: - Queue, History & Chapter Navigation
