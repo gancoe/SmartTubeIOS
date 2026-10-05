@@ -5,10 +5,21 @@ import Testing
 
 @Suite("MPV diagnostic snapshots")
 struct MPVPlaybackDiagnosticSnapshotTests {
-    @Test func creationFailureIsReportedWithoutInventingALibraryErrorCode() {
+    @Test(arguments: [true, false])
+    func anUnloadedStreamReportsWaitingInsteadOfRequestedPlayback(playing: Bool) {
+        let event = MPVPlaybackDiagnosticSnapshot(
+            reportID: "test", videoID: "test", isPlaying: playing
+        ).deliveryEvent()
+        #expect(event.itemStatus == "unknown")
+        #expect(event.playbackStatus == "waiting")
+        #expect(event.waitingReason == "unknown")
+    }
+
+    @Test(arguments: [true, false])
+    func creationFailureIsReportedWithoutInventingALibraryErrorCode(playing: Bool) {
         let failureTime = Date(timeIntervalSince1970: 1_000)
         let event = MPVPlaybackDiagnosticSnapshot(
-            reportID: "test", videoID: "test", errorEventCount: 1, errorTimestamp: failureTime
+            reportID: "test", videoID: "test", isPlaying: playing, errorEventCount: 1, errorTimestamp: failureTime
         ).deliveryEvent()
         #expect(event.itemStatus == "failed")
         #expect(event.playbackStatus == "paused")

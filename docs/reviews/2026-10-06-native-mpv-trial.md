@@ -51,6 +51,16 @@ The pinned MPVKit build script (`Sources/BuildScripts/XCFrameworkBuild/main.swif
 
 The review also found that the MPV capture was file-backed while AVPlayer explicitly used `UserDefaults.standard` on tvOS. The MPV monitor now uses that same defaults store, preserving AVPlayer's capture start and deadline rather than creating an independent window. Existing defaults-persistence tests cover reopening and expired captures. Whether this mismatch caused the missing MPV events remains unverified until device delivery is measured.
 
+## Physical loading and remote controls
+
+Measured on 6 October: after removing `ytdl`, the device delivered 13 MPV snapshots over 29 seconds for video `BkWKScGrF38`, report `7EA3980E`. They showed an unknown item, zero buffer, no resolution, no numeric error, and unchanged inherited position. The old `playing` label represented requested play intent, not loaded media (`tmp/native-mpv-no-start-events.json`). Subsequent AVPlayer events showed 4K playback; this does not prove why MPV did not load during that interval.
+
+The controls initially assigned focus to Play/Pause while its containing row was disabled until readiness. The local repair focuses Return during loading, switches focus to Play/Pause when ready, and displays a loading indicator. Diagnostics now report waiting for an unloaded session and cannot report a failed item as playing. These controls remain unverified on the physical remote.
+
+The loading-state and failed-item tests first failed before repair, then 42 focused tests passed (`tmp/mpv-loading-state-red.log`, `tmp/mpv-failure-playback-state-red.log`, `tmp/mpv-loading-state-tests-final.log`). The explicit tvOS simulator build succeeded (`tmp/mpv-loading-state-build-explicit-final.log`). Independent review found no remaining blockers in this diff. `just ci` still stopped at 149 inherited serious lint violations in 429 files (`tmp/mpv-loading-state-ci-final.log`); the baseline was not changed.
+
+A local-file probe against the bundled tvOS simulator library received `FILE_LOADED` and `PLAYBACK_RESTART`. A fresh HLS source for the affected video, with rendering disabled, reached `FILE_LOADED` at 23.12 seconds and reported 3840×2160 (`tmp/mpv-load-probe-result.log`, `tmp/mpv-youtube-hls-probe-output.log`). This confirms those probe paths can load. It does not rule out slower physical loading, differences in the original signed source, or a problem in the production Metal/session path. Actual MPV video rendering and playback remain unverified.
+
 ## Upstream references
 
 - [MPVKit](https://github.com/mpvkit/MPVKit), including its tvOS Metal example and drawable-size workaround.

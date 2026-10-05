@@ -97,10 +97,13 @@ enum MPVPlaybackDiagnosticMapper {
             return bitrate.isFinite && bitrate > 0 ? bitrate : nil
         }
         let itemStatus = snapshot.isReady ? "ready" : snapshot.errorEventCount > 0 ? "failed" : "unknown"
+        let isWaiting =
+            snapshot.isBuffering || snapshot.isSeeking
+            || (!snapshot.isReady && snapshot.errorEventCount == 0 && !snapshot.hasEnded)
         let playbackStatus: String
-        if snapshot.isBuffering || snapshot.isSeeking {
+        if isWaiting {
             playbackStatus = "waiting"
-        } else if snapshot.isPlaying && !snapshot.hasEnded {
+        } else if snapshot.isReady && snapshot.isPlaying && !snapshot.hasEnded {
             playbackStatus = "playing"
         } else {
             playbackStatus = "paused"
@@ -116,7 +119,7 @@ enum MPVPlaybackDiagnosticMapper {
             bufferViewingSeconds: viewingBuffer,
             itemStatus: itemStatus,
             playbackStatus: playbackStatus,
-            waitingReason: snapshot.isBuffering || snapshot.isSeeking ? "unknown" : "—",
+            waitingReason: isWaiting ? "unknown" : "—",
             streamRoute: "MPV/FFmpeg/HLS",
             observedBitrateBps: observedBitrate,
             droppedFrames: max(0, snapshot.droppedFrames),

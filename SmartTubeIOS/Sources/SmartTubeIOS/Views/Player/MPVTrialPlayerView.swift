@@ -34,7 +34,12 @@ struct MPVTrialPlayerView: View {
             Color.black.ignoresSafeArea()
             MPVVideoSurface(session: session).ignoresSafeArea()
                 .allowsHitTesting(false)
-            if session.isBuffering { ProgressView().scaleEffect(2) }
+            if session.isBuffering || (!session.isReady && session.errorMessage == nil) {
+                VStack(spacing: 20) {
+                    ProgressView().scaleEffect(2)
+                    Text(session.isReady ? "Buffering…" : "Loading stream…")
+                }
+            }
             if let error = session.errorMessage {
                 VStack(spacing: 20) {
                     Text("MPV could not play this stream")
@@ -65,7 +70,11 @@ struct MPVTrialPlayerView: View {
                         String(
                             format: "Buffer: %.1f s · viewing: %.1f s", session.bufferSeconds,
                             session.bufferSeconds / max(0.1, session.rate)))
-                    Text(session.isBuffering ? "Waiting for media" : "Playing: \(session.isPlaying ? "yes" : "no")")
+                    Text(
+                        !session.isReady
+                            ? "Loading stream"
+                            : session.isBuffering ? "Waiting for media" : "Playing: \(session.isPlaying ? "yes" : "no")"
+                    )
                     Text("MPV logs are separate from AVPlayer diagnostics")
                 }
                 .font(.system(.caption, design: .monospaced))
@@ -88,7 +97,10 @@ struct MPVTrialPlayerView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = session.isPlaying
-            focused = .playPause
+            focused = session.isReady ? .playPause : .back
+        }
+        .onChange(of: session.isReady) { _, ready in
+            if ready && controlsVisible { focused = .playPause }
         }
         .onChange(of: session.isPlaying) { _, playing in
             UIApplication.shared.isIdleTimerDisabled = playing
@@ -168,7 +180,7 @@ struct MPVTrialPlayerView: View {
 
     private func revealControls() {
         controlsVisible = true
-        focused = .playPause
+        focused = session.isReady ? .playPause : .back
     }
 
     private func seekRelative(_ delta: Double) {

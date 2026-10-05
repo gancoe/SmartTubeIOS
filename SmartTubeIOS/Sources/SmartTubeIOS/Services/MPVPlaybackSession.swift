@@ -406,6 +406,7 @@ final class MPVPlaybackSession {
 
     private func shutdown() {
         isStopped = true
+        isPlaying = false
         eventTask?.cancel()
         eventTask = nil
         guard let handle else {
