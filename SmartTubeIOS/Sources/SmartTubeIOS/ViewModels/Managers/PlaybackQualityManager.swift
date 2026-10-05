@@ -271,7 +271,7 @@ final class PlaybackQualityManager {
             ?? requestedCap
         if let cap = effectiveCap {
             let h = CGFloat(cap)
-            let peakBR = peakBitRate(for: cap)
+            let peakBR = hlsPeakBitRate(for: cap)
             item.preferredMaximumResolution = CGSize(width: h * 4, height: h)
             item.preferredPeakBitRate = peakBR
             playerLog.notice(
@@ -596,6 +596,10 @@ final class PlaybackQualityManager {
         let sortedKeys = Self.bitRateCaps.keys.sorted()
         let lower = sortedKeys.last(where: { $0 <= height }) ?? sortedKeys.first ?? 480
         return Self.bitRateCaps[lower] ?? 4_000_000
+    }
+
+    func hlsPeakBitRate(for height: Int) -> Double {
+        allowsNativeVP9 ? 0 : peakBitRate(for: height)
     }
 
     func reloadHLSItemH264Capped(seekTo time: TimeInterval) async {

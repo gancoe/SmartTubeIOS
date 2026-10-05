@@ -1222,9 +1222,9 @@ extension PlaybackViewModel {
         if applyHLSHints {
             if let maxH = hlsPolicy.cappedHeight(requested: effectiveQuality.maxHeight) {
                 item.preferredMaximumResolution = CGSize(width: CGFloat(maxH) * 4, height: CGFloat(maxH))
-                item.preferredPeakBitRate = peakBitRate(for: maxH)
+                item.preferredPeakBitRate = qualityManager.hlsPeakBitRate(for: maxH)
                 playerLog.notice(
-                    "[\(label)] HLS ABR hints: maxH=\(maxH)p peakBitRate=\(peakBitRate(for: maxH) / 1_000_000)Mbps (master URL preserved)"
+                    "[\(label)] HLS ABR hints: maxH=\(maxH)p peakBitRate=\(item.preferredPeakBitRate / 1_000_000)Mbps (master URL preserved)"
                 )
             } else {
                 // Auto: remove all constraints so AVPlayer picks the best available variant.

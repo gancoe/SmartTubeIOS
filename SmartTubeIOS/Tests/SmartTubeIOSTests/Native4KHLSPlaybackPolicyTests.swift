@@ -1,3 +1,4 @@
+import AVFoundation
 import SmartTubeIOSCore
 import Testing
 
@@ -54,5 +55,37 @@ struct Native4KHLSPlaybackPolicyTests {
         #expect(native.cacheKey(videoId: "video") != fallback.cacheKey(videoId: "video"))
         #expect(native.cacheKey(videoId: "video") != legacy.cacheKey(videoId: "video"))
         #expect(legacy.cacheKey(videoId: "video") == "video")
+    }
+
+    @Test("manager uncaps Native4K HLS while retaining H264 caps")
+    @MainActor
+    func managerPeakBitRatePolicy() {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        #expect(manager.allowsNativeVP9)
+        #expect(manager.hlsPeakBitRate(for: 2160) == 0)
+
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 1080, allowedVideoCodecs: ["avc1"])
+        #expect(!manager.allowsNativeVP9)
+        #expect(manager.hlsPeakBitRate(for: 1080) == 15_000_000)
+        #expect(manager.hlsPeakBitRate(for: 2160) == 45_000_000)
+    }
+
+    @Test("reset clears Native4K eligibility and restores base HLS caps")
+    @MainActor
+    func resetRestoresBasePeakBitRatePolicy() {
+        let manager = PlaybackQualityManager(player: AVPlayer())
+        manager.configureHLSPlayback(
+            userAgent: "test", maximumHeight: 2160, allowedVideoCodecs: ["avc1", "vp09.00"])
+        #expect(manager.hlsPeakBitRate(for: 2160) == 0)
+
+        manager.reset()
+
+        #expect(!manager.allowsNativeVP9)
+        #expect(manager.hlsPeakBitRate(for: 1080) == 15_000_000)
+        #expect(manager.hlsPeakBitRate(for: 2160) == 45_000_000)
     }
 }
