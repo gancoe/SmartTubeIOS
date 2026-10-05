@@ -16,7 +16,7 @@ This experiment adds **Player → AVPlayer → MPV (experimental)** to the video
 
 MPV snapshots use the existing private Pi collector with a distinct `MPV/FFmpeg/HLS` route and `MPV` error domain. They include resolution, position, speed, buffer, cache throughput, decoder frame-drop count, cache-wait transitions, and sanitized numeric errors. They do not contain AVPlayer request/variant timings. MPV throughput is its one-second cache-read sample, not an AVPlayer access-log average. Codec and FPS remain on-screen only.
 
-The MPV queue has its own `MPVDiagnostics/pending.json` file. Capture reuses the configured UUID and persisted deadline; switching engines does not renew the 30-minute limit. Initialization failures can emit one final snapshot.
+The MPV queue has its own `MPVDiagnostics/pending.json` file. On tvOS, capture uses the same `UserDefaults.standard` state store as AVPlayer. Capture reuses the configured UUID and persisted deadline; switching engines does not renew the 30-minute limit. Initialization failures can emit one final snapshot.
 
 Measured: four payload fixtures compiled from the production Swift event types and mapper passed the collector validator; the Pi accepted a synthetic `testonly` error event with HTTP 201 (`tmp/mpv-collector-contract-verification.json`). This verifies payload/transport compatibility, not installed-app delivery.
 
@@ -42,6 +42,14 @@ A direct probe of MPVKit 1.0.0's macOS slice reproduced `mpv_create=NULL` with `
 UNVERIFIED: the physical failure was caused by its locale. The device locale was not captured; tvOS-specific option/initialization failure and handle-creation memory failure remain alternatives. The next build therefore also shows the exact startup stage and records real numeric return codes. Creation failures without a libmpv return code emit a failed-item event without inventing a code. The new diagnostic test first failed with `unknown` status, then passed after that mapping was corrected (`tmp/mpv-startup-failure-test-red.log`, `tmp/mpv-startup-repair-tests-final.log`). Physical playback remains the acceptance gate.
 
 Repair validation: 41 focused tests passed, the final tvOS simulator build succeeded, and independent review found no remaining startup telemetry blockers. `just ci` still stopped at the inherited 149 serious lint violations in 429 files (`tmp/mpv-startup-repair-tests-final.log`, `tmp/mpv-startup-repair-build-final.log`, `tmp/mpv-startup-repair-ci-final.log`).
+
+## Physical startup identifies an unavailable tvOS option
+
+The repaired build's physical error was `MPV startup failed at ytdl (-5)` (user-supplied photo, 6 October 2026). The bundled tvOS `client.h:312` defines `-5` as `MPV_ERROR_OPTION_NOT_FOUND`. This establishes a rejected startup option before `mpv_initialize` or `loadfile`; a network or decoder failure cannot produce this stage. The numeric-locale hypothesis did not explain this failure.
+
+The pinned MPVKit build script (`Sources/BuildScripts/XCFrameworkBuild/main.swift:414-432`) enables Lua on macOS and disables it on other platforms. This explains why the macOS bootstrap probe accepted `ytdl` while the Apple TV rejected it. The repair removes the unnecessary `ytdl=no` option: the trial receives SmartTube's already-resolved HTTPS HLS source and does not need YouTube extraction scripting. No stream source, buffering or AVPlayer policy changes are included. Physical playback after removal remains unverified.
+
+The review also found that the MPV capture was file-backed while AVPlayer explicitly used `UserDefaults.standard` on tvOS. The MPV monitor now uses that same defaults store, preserving AVPlayer's capture start and deadline rather than creating an independent window. Existing defaults-persistence tests cover reopening and expired captures. Whether this mismatch caused the missing MPV events remains unverified until device delivery is measured.
 
 ## Upstream references
 

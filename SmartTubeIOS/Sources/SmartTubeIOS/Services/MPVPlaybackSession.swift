@@ -118,7 +118,6 @@ final class MPVPlaybackSession {
             setOption("gpu-context", value: "moltenvk"),
             setOption("hwdec", value: "videotoolbox"),
             setOption("terminal", value: "no"),
-            setOption("ytdl", value: "no"),
             setOption("hls-bitrate", value: "max"),
             setOption("pause", value: "yes"),
             setOption("speed", value: String(resumeRate)),

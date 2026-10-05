@@ -13,7 +13,8 @@ extension MPVPlaybackSession {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? cache
         let captureSession = PlaybackDiagnosticsCaptureSession(
             captureID: captureID,
-            stateURL: stateRoot.appendingPathComponent("PlaybackDiagnostics/capture-state.json"))
+            stateURL: stateRoot.appendingPathComponent("PlaybackDiagnostics/capture-state.json"),
+            defaults: .standard)
         let reporter = PlaybackDiagnosticsReporter(
             configuration: configuration,
             storeURL: cache.appendingPathComponent("MPVDiagnostics/pending.json"))
