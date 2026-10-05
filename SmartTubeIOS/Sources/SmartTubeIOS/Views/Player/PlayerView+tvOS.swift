@@ -44,7 +44,7 @@ extension PlayerView {
     /// binding on each row; initial focus is set to `.speed` when the menu opens
     /// (PlayerView+Lifecycle). The case value drives the row's focus highlight.
     enum MoreMenuRow: Hashable {
-        case speed, quality, like, dislike, sleepTimer, audioOnly, queueShuffle, captions,
+        case speed, quality, engine, like, dislike, sleepTimer, audioOnly, queueShuffle, captions,
             audioTrack, description, comments, statsForNerds, cancel
     }
 

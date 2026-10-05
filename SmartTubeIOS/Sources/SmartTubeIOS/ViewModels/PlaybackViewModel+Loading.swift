@@ -850,6 +850,8 @@ extension PlaybackViewModel {
                 initialHeaders["Origin"] = "https://www.youtube.com"
                 initialHeaders["Referer"] = "https://www.youtube.com/"
             }
+            playbackEngineTrialSource = PlaybackEngineTrialSource(
+                url: initialStreamURL, headers: initialHeaders, isHLS: isHLS)
             let playerAsset = AVURLAsset(
                 url: initialStreamURL,
                 options: ["AVURLAssetHTTPHeaderFieldsKey": initialHeaders]

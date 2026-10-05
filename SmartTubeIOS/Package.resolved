@@ -1,5 +1,5 @@
 {
-  "originHash" : "7604355c429f407ab281e13d0ac425669e54cf8febcb19d8bc007b83cb94200b",
+  "originHash" : "a34b353ba68bfa52823f69352b40260e7aeef0f849811fc900bcbd80d99b13f6",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -98,6 +98,15 @@
       "state" : {
         "revision" : "a0bc79961d7be727d258d33d5a6b2f1023270ba1",
         "version" : "1.22.5"
+      }
+    },
+    {
+      "identity" : "mpvkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mpvkit/MPVKit",
+      "state" : {
+        "revision" : "288527dffbc6d3e63cce147fc7b520c64a791603",
+        "version" : "1.0.0"
       }
     },
     {

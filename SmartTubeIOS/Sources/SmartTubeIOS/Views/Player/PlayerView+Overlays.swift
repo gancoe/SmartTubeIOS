@@ -180,6 +180,7 @@ extension PlayerView {
             #if os(tvOS)
             moreMenuSpeedRow
             moreMenuQualityRow
+            moreMenuEngineRow
             #endif
             moreMenuLikeDislikeRow
             moreMenuShareRow
