@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "SmartTubeIOS", targets: ["SmartTubeIOS"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/mpvkit/MPVKit", exact: "1.0.0"),
         .package(
             url: "https://github.com/firebase/firebase-ios-sdk",
             from: "12.0.0"
@@ -38,6 +39,7 @@ let package = Package(
             name: "SmartTubeIOS",
             dependencies: [
                 "SmartTubeIOSCore",
+                .product(name: "MPVKit", package: "MPVKit", condition: .when(platforms: [.tvOS])),
                 .product(name: "FirebaseCrashlytics", package: "firebase-ios-sdk"),
             ],
             path: "Sources/SmartTubeIOS",

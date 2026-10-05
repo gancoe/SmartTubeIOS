@@ -71,6 +71,8 @@ public struct PlayerView: View {
     /// Drives the quality-change toast shown after the user picks a resolution.
     @State var qualityToastMessage: String?
     #if os(tvOS)
+    @State var mpvTrial: MPVPlaybackSession?
+    @State var mpvReturnState: MPVTrialReturnState?
     @State var commentsNavigation = CommentsPanelNavigation()
     @State var showRecommendations = false
     @State var highlightedRecommendationID: String?
@@ -125,7 +127,37 @@ public struct PlayerView: View {
     }
 
     public var body: some View {
+        #if os(tvOS)
         bodyWithLifecycleModifiers
+            .fullScreenCover(
+                isPresented: Binding(
+                    get: { mpvTrial != nil },
+                    set: { if !$0 { finishMPVTrial() } }
+                ), onDismiss: resumeAfterMPVTrial
+            ) {
+                if let session = mpvTrial {
+                    MPVTrialPlayerView(
+                        session: session,
+                        title: vm.currentVideo?.title ?? video.title,
+                        videoID: vm.currentVideo?.id ?? video.id,
+                        reportID: vm.statsSnapshot.reportID,
+                        segments: vm.sponsorSegments,
+                        settings: store.settings,
+                        onReturn: finishMPVTrial
+                    )
+                }
+            }
+            .onChange(of: vm.isLoading) { _, loading in
+                if !loading, let state = mpvReturnState {
+                    vm.seek(to: state.position)
+                    vm.player.rate = state.isPlaying ? Float(state.rate) : 0
+                    vm.isPlaying = state.isPlaying
+                    mpvReturnState = nil
+                }
+            }
+        #else
+        bodyWithLifecycleModifiers
+        #endif
     }
 
     // MARK: - Lifecycle + full player body

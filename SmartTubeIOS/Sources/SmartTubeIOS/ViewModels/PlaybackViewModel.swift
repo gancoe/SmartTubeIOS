@@ -151,6 +151,7 @@ public final class PlaybackViewModel {
     public internal(set) var hasNext: Bool = false
     /// The last stream URL handed to AVPlayer (primary or fallback). Stamped onto
     /// Crashlytics non-fatal reports so the exact URL that failed is visible.
+    var playbackEngineTrialSource: PlaybackEngineTrialSource?
     var lastAttemptedStreamURL: URL?
     public var error: Error? {
         didSet {

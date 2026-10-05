@@ -1237,6 +1237,8 @@ extension PlaybackViewModel {
             )
             return false
         }
+        playbackEngineTrialSource = PlaybackEngineTrialSource(
+            url: effectiveURL, headers: hlsHeaders, isHLS: applyHLSHints)
         qualityManager.rampHLSForwardBuffer(on: item, isHLS: applyHLSHints)
         player.replaceCurrentItem(with: item)
         itemObserverTask?.cancel()
