@@ -33,6 +33,16 @@ Neither a successful build nor healthy startup establishes sustained physical 4K
 - Measured: `just ci` stopped at lint with 149 serious violations in 429 files (`tmp/mpv-ci.log`). No violations were reported in the new trial files; the full gate remains failing. The lint baseline was not changed.
 - An independent reviewer found and verified repairs for proxy-source matching, background preference handling, and early remote Play intent.
 
+## First physical startup failure and bounded repair
+
+The first installed trial showed `Unable to start video playback` before media loading. The saved capture (`tmp/native-mpv-first-startup-failure-events.json`) contains AVPlayer events but no MPV route, so actual MPV delivery is still unverified. The installed generic message covered both handle creation and rejected startup calls; it did not identify the failing stage.
+
+A direct probe of MPVKit 1.0.0's macOS slice reproduced `mpv_create=NULL` with `LC_NUMERIC=en_NZ.UTF-8`, then successful creation and initialization after `setlocale(LC_NUMERIC, "C")`. All configured options were accepted by that slice (`tmp/mpv-locale-probe-parent-verification.log`). The bundled tvOS header requires the C numeric locale for libmpv's lifetime. The repair enforces that documented precondition when entering the MPV trial; it changes only the numeric locale, not Foundation's selected display language or region.
+
+UNVERIFIED: the physical failure was caused by its locale. The device locale was not captured; tvOS-specific option/initialization failure and handle-creation memory failure remain alternatives. The next build therefore also shows the exact startup stage and records real numeric return codes. Creation failures without a libmpv return code emit a failed-item event without inventing a code. The new diagnostic test first failed with `unknown` status, then passed after that mapping was corrected (`tmp/mpv-startup-failure-test-red.log`, `tmp/mpv-startup-repair-tests-final.log`). Physical playback remains the acceptance gate.
+
+Repair validation: 41 focused tests passed, the final tvOS simulator build succeeded, and independent review found no remaining startup telemetry blockers. `just ci` still stopped at the inherited 149 serious lint violations in 429 files (`tmp/mpv-startup-repair-tests-final.log`, `tmp/mpv-startup-repair-build-final.log`, `tmp/mpv-startup-repair-ci-final.log`).
+
 ## Upstream references
 
 - [MPVKit](https://github.com/mpvkit/MPVKit), including its tvOS Metal example and drawable-size workaround.

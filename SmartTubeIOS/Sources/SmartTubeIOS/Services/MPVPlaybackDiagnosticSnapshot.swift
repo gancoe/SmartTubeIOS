@@ -96,7 +96,7 @@ enum MPVPlaybackDiagnosticMapper {
             let bitrate = value * 1_000_000
             return bitrate.isFinite && bitrate > 0 ? bitrate : nil
         }
-        let itemStatus = snapshot.isReady ? "ready" : "unknown"
+        let itemStatus = snapshot.isReady ? "ready" : snapshot.errorEventCount > 0 ? "failed" : "unknown"
         let playbackStatus: String
         if snapshot.isBuffering || snapshot.isSeeking {
             playbackStatus = "waiting"
@@ -124,7 +124,7 @@ enum MPVPlaybackDiagnosticMapper {
             errorEventCount: max(0, snapshot.errorEventCount),
             errorDomain: errorCode == nil ? nil : "MPV",
             errorCode: errorCode,
-            errorTimestamp: errorCode == nil ? nil : snapshot.errorTimestamp,
+            errorTimestamp: snapshot.errorEventCount > 0 ? snapshot.errorTimestamp : nil,
             errorComment: errorCode == nil ? "—" : "Details redacted",
             errorResource: "unknown",
             playbackPositionSeconds: finite(snapshot.currentTime, minimum: 0),

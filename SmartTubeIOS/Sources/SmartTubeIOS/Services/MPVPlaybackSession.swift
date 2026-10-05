@@ -1,6 +1,7 @@
 #if os(tvOS) && canImport(Libmpv)
 
 import Foundation
+import Darwin
 import Observation
 import UIKit
 import Libmpv
@@ -89,9 +90,20 @@ final class MPVPlaybackSession {
         guard handle == nil else { return }
         guard !isStopped else { return }
         attachedLayer = layer
-        guard let newHandle = mpv_create() else {
+        guard setlocale(LC_NUMERIC, "C") != nil else {
+            recordDiagnosticsError(code: nil)
             attachedLayer = nil
-            errorMessage = "Unable to start video playback"
+            isPlaying = false
+            isStopped = true
+            errorMessage = "MPV startup failed at numeric locale"
+            return
+        }
+        guard let newHandle = mpv_create() else {
+            recordDiagnosticsError(code: nil)
+            attachedLayer = nil
+            isPlaying = false
+            isStopped = true
+            errorMessage = "MPV startup failed at create"
             return
         }
         handle = newHandle
@@ -100,7 +112,7 @@ final class MPVPlaybackSession {
         let optionStatus = withUnsafeMutablePointer(to: &windowID) {
             mpv_set_option(newHandle, "wid", MPV_FORMAT_INT64, $0)
         }
-        guard check(optionStatus),
+        guard check(optionStatus, stage: "wid"),
             setOption("vo", value: "gpu-next"),
             setOption("gpu-api", value: "vulkan"),
             setOption("gpu-context", value: "moltenvk"),
@@ -135,7 +147,7 @@ final class MPVPlaybackSession {
             }
         }
 
-        guard check(mpv_initialize(newHandle)) else {
+        guard check(mpv_initialize(newHandle), stage: "initialize") else {
             shutdown()
             return
         }
@@ -168,7 +180,7 @@ final class MPVPlaybackSession {
         }
         guard let handle else { return }
         var pause: Int32 = playing ? 0 : 1
-        guard check(mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pause)) else { return }
+        guard check(mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pause), stage: "pause") else { return }
         isPlaying = playing
     }
 
@@ -192,7 +204,7 @@ final class MPVPlaybackSession {
     func setRate(_ newRate: Double) {
         guard newRate.isFinite, newRate > 0, let handle else { return }
         var value = newRate
-        guard check(mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &value)) else { return }
+        guard check(mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &value), stage: "speed") else { return }
         rate = newRate
     }
 
@@ -206,7 +218,7 @@ final class MPVPlaybackSession {
         setRate(resumeRate)
         guard let handle else { return }
         var pause: Int32 = resumeIsPlaying ? 0 : 1
-        if check(mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pause)) {
+        if check(mpv_set_property(handle, "pause", MPV_FORMAT_FLAG, &pause), stage: "pause") {
             isPlaying = resumeIsPlaying
         }
     }
@@ -350,7 +362,7 @@ final class MPVPlaybackSession {
                 value.withCString { optionValue in
                     mpv_set_option_string(handle, optionName, optionValue)
                 }
-            })
+            }, stage: name)
     }
 
     private func escapeListValue(_ value: String) -> String {
@@ -378,15 +390,16 @@ final class MPVPlaybackSession {
         }
     }
 
-    private func check(_ status: Int32) -> Bool {
+    private func check(_ status: Int32, stage: String) -> Bool {
         guard status >= 0 else {
-            errorMessage = "Unable to start video playback"
+            recordDiagnosticsError(code: Int(status))
+            errorMessage = "MPV startup failed at \(stage) (\(status))"
             return false
         }
         return true
     }
 
-    private func recordDiagnosticsError(code: Int) {
+    private func recordDiagnosticsError(code: Int?) {
         diagnosticsErrorEventCount += 1
         diagnosticsErrorCode = code
         diagnosticsErrorTimestamp = Date()

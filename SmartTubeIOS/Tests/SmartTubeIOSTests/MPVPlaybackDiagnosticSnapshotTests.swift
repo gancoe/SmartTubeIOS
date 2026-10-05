@@ -5,6 +5,18 @@ import Testing
 
 @Suite("MPV diagnostic snapshots")
 struct MPVPlaybackDiagnosticSnapshotTests {
+    @Test func creationFailureIsReportedWithoutInventingALibraryErrorCode() {
+        let failureTime = Date(timeIntervalSince1970: 1_000)
+        let event = MPVPlaybackDiagnosticSnapshot(
+            reportID: "test", videoID: "test", errorEventCount: 1, errorTimestamp: failureTime
+        ).deliveryEvent()
+        #expect(event.itemStatus == "failed")
+        #expect(event.playbackStatus == "paused")
+        #expect(event.errorEventCount == 1)
+        #expect(event.errorCode == nil)
+        #expect(event.errorTimestamp == failureTime)
+    }
+
     @Test(arguments: [1.5, 2.0])
     func reportsViewingHeadroomAndMPVCacheThroughput(speed: Double) {
         let event = MPVPlaybackDiagnosticSnapshot(
