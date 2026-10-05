@@ -585,4 +585,28 @@ final class TVNativePlayerInteractionUITests: XCTestCase {
         XCTAssertEqual(element("player.titleLabel").label, initialVideo)
     }
 }
+
+extension TVNativePlayerInteractionUITests {
+    func testManualSponsorSkipReturnsRemoteControlToPlayer() {
+        app.terminate()
+        app.launchArguments.append("--uitesting-description-toast")
+        app.launch()
+        openTestVideo()
+        XCTAssertTrue(element("player.titleLabel").waitForExistence(timeout: 15))
+        openDescription()
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Skip ")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("enabled == true", for: skip)
+        remote.press(.select)
+        wait("exists == false", for: skip)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 3))
+        remote.press(.menu)
+        wait("exists == false", for: element("player.playPauseButton"))
+        XCTAssertEqual(element("player.titleLabel").label, initialVideo)
+        remote.press(.up)
+        XCTAssertTrue(element("player.playPauseButton").waitForExistence(timeout: 3))
+    }
+}
 #endif
